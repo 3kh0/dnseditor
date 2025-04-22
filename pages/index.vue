@@ -48,17 +48,23 @@
               >
                 <Icon name="material-symbols:edit-outline" size="1.25rem" />
               </button>
-              <button
-                class="w-10 h-10 flex items-center justify-center rounded-lg bg-red-500/20 hover:bg-red-500/30 transition-all duration-300 text-red-500"
-                title="View Source"
+              <a
+                :href="`https://github.com/hackclub/dns/blob/main/${selectedDomain}`"
+                target="_blank"
               >
-                <Icon name="material-symbols:code" size="1.25rem" />
-              </button>
+                <button
+                  class="w-10 h-10 flex items-center justify-center rounded-lg bg-red-500/20 hover:bg-red-500/30 transition-all duration-300 text-red-500 cursor-pointer"
+                  title="View Source"
+                >
+                  <Icon name="material-symbols:code" size="1.25rem" /></button
+              ></a>
             </div>
           </div>
 
           <!-- Search Bar -->
-          <div class="relative">
+          <div
+            class="relative w-full pl-10 pr-4 py-3 rounded-lg bg-darkless/40 backdrop-blur-md border border-border/20"
+          >
             <Icon
               name="material-symbols:search-rounded"
               class="text-muted absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
@@ -68,7 +74,7 @@
               v-model="searchQuery"
               type="text"
               placeholder="Search records and values..."
-              class="w-full pl-10 pr-4 py-3 rounded-lg bg-darkless/40 backdrop-blur-md border border-border/20 text-snow placeholder-muted/60 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all duration-300"
+              class="w-full bg-transparent text-snow placeholder-muted/60 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all duration-300"
             />
           </div>
         </div>
