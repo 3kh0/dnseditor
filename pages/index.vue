@@ -1,102 +1,139 @@
 <template>
-  <div class="flex flex-col md:flex-row min-h-screen bg-dark text-snow">
+  <div
+    class="flex flex-col md:flex-row min-h-screen bg-gradient-to-br from-darker to-dark text-snow"
+  >
     <!-- Sidebar -->
     <aside
-      class="w-full md:w-64 bg-darkless/70 backdrop-blur-md p-4 border-r border-border"
+      class="w-full md:w-72 bg-darkless/40 backdrop-blur-xl p-6 border-r border-border/20 shadow-xl"
     >
-      <h2 class="text-lg font-bold mb-4 text-primary">Domains</h2>
-      <ul class="space-y-2">
-        <li
+      <h2 class="text-xl font-bold mb-6 text-primary flex items-center gap-2">
+        <Icon name="material-symbols:globe" class="w-6 h-6" />
+        Hack Club DNS
+      </h2>
+      <div class="space-y-1">
+        <button
           v-for="(domain, index) in domainFiles"
           :key="index"
-          class="cursor-pointer p-2 rounded hover:bg-dark transition-all duration-300"
-          :class="{ 'bg-primary text-snow': selectedDomain === domain }"
+          class="w-full text-left px-4 py-3 rounded-lg transition-all duration-300 hover:scale-102 group"
+          :class="{
+            'bg-primary/20 text-primary border border-primary/20':
+              selectedDomain === domain,
+            'hover:bg-darkless/80': selectedDomain !== domain,
+          }"
           @click="selectDomain(domain)"
         >
-          {{ domain.replace(".yaml", "") }}
-        </li>
-      </ul>
+          <span class="line-clamp-1">{{ domain.replace(".yaml", "") }}</span>
+        </button>
+      </div>
     </aside>
 
     <!-- Main Content -->
-    <main class="flex-1 p-8">
-      <h1 class="text-4xl font-bold mb-6 text-primary">
-        {{ selectedDomain.replace(".yaml", "") }} DNS Records
-      </h1>
-      <div v-if="loading" class="text-muted animate-pulse">Loading...</div>
-      <div v-else-if="error" class="text-yellow">Error: {{ error }}</div>
-      <div v-else>
-        <div class="space-y-4">
+    <main class="flex-1 p-8 overflow-auto">
+      <div class="max-w-6xl mx-auto">
+        <h1
+          class="text-4xl font-bold mb-8 text-primary flex items-center gap-3"
+        >
+          <Icon name="material-symbols:dns" class="w-8 h-8" />
+          {{ selectedDomain.replace(".yaml", "") }}
+        </h1>
+
+        <div v-if="loading" class="flex items-center justify-center p-2">
+          <div class="text-primary">
+            <Icon name="codex:loader" size="4em" />
+          </div>
+        </div>
+
+        <div
+          v-else-if="error"
+          class="p-4 rounded-lg bg-yellow/10 border border-yellow/20 text-yellow flex items-center gap-2"
+        >
+          <Icon name="material-symbols:warning-rounded" class="w-5 h-5" />
+          {{ error }}
+        </div>
+
+        <div v-else class="space-y-4">
           <div
             v-for="(recordGroup, index) in records"
             :key="index"
-            class="bg-darkless/70 backdrop-blur-md p-4 rounded-lg border border-border shadow-md transition-all duration-300"
+            class="group rounded-xl border border-border/10 bg-darkless/40 backdrop-blur-md shadow-lg transition-all duration-300 hover:shadow-xl hover:bg-darkless/60"
           >
-            <div
-              class="flex justify-between items-center cursor-pointer"
+            <button
+              class="w-full px-6 py-4 flex justify-between items-center"
               @click="toggleRecord(index)"
             >
-              <h2 class="text-lg font-bold text-primary">
+              <h2
+                class="text-lg font-semibold text-primary flex items-center gap-2"
+              >
+                <Icon
+                  name="material-symbols:settop-component-rounded"
+                  class="w-5 h-5"
+                />
                 {{ trimSubdomain(recordGroup.subdomain) }}
               </h2>
-              <span
-                class="text-muted transform transition-transform duration-300"
+              <Icon
+                name="icon-park-outline:down"
+                class="w-5 h-5 text-muted transition-transform duration-300"
                 :class="{ 'rotate-180': expanded[index] }"
-              >
-                ▼
-              </span>
-            </div>
+              />
+            </button>
+
             <div
-              v-if="expanded[index]"
-              class="mt-4 overflow-hidden transition-all duration-300"
+              v-show="expanded[index]"
+              class="px-6 pb-6 transition-all duration-300"
             >
-              <table
-                class="table-auto w-full border-collapse border border-border"
-              >
-                <thead>
-                  <tr class="bg-primary text-snow">
-                    <th class="px-4 py-2 border border-border">Type</th>
-                    <th class="px-4 py-2 border border-border">Value(s)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="(record, idx) in recordGroup.records"
-                    :key="idx"
-                    class="hover:bg-dark transition-all duration-300"
-                  >
-                    <td class="px-4 py-2 border border-border">
-                      {{ record.type }}
-                    </td>
-                    <td class="px-4 py-2 border border-border">
-                      <div v-if="Array.isArray(record.values)">
-                        <ul>
-                          <li
-                            v-for="(value, valueIdx) in record.values"
-                            :key="valueIdx"
-                          >
-                            <div v-if="record.type === 'MX'">
-                              Priority: {{ value.priority }}, Exchange:
-                              {{ value.exchange }}
-                            </div>
-                            <div v-else-if="record.type === 'SSHFP'">
-                              Algorithm: {{ value.algorithm }}, Fingerprint
-                              Type: {{ value.fingerprint_type }}, Fingerprint:
-                              {{ value.fingerprint }}
-                            </div>
-                            <div v-else>
-                              {{ value }}
-                            </div>
-                          </li>
-                        </ul>
-                      </div>
-                      <div v-else>
-                        {{ record.values }}
-                      </div>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+              <div class="overflow-x-auto rounded-lg border border-border/10">
+                <table class="w-full">
+                  <thead>
+                    <tr class="bg-primary/10">
+                      <th class="px-6 py-3 text-left text-sm font-semibold">
+                        Type
+                      </th>
+                      <th class="px-6 py-3 text-left text-sm font-semibold">
+                        Value(s)
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-border/10">
+                    <tr
+                      v-for="(record, idx) in recordGroup.records"
+                      :key="idx"
+                      class="group/row hover:bg-darkless/80"
+                    >
+                      <td class="px-6 py-4 text-sm font-medium">
+                        {{ record.type }}
+                      </td>
+                      <td class="px-6 py-4 text-sm">
+                        <div v-if="Array.isArray(record.values)">
+                          <ul class="space-y-2">
+                            <li
+                              v-for="(value, valueIdx) in record.values"
+                              :key="valueIdx"
+                              class="group-hover/row:text-snow"
+                            >
+                              <template v-if="record.type === 'MX'">
+                                <span class="text-muted">Priority:</span>
+                                {{ value.priority }},
+                                <span class="text-muted">Exchange:</span>
+                                {{ value.exchange }}
+                              </template>
+                              <template v-else-if="record.type === 'SSHFP'">
+                                <span class="text-muted">Algorithm:</span>
+                                {{ value.algorithm }},
+                                <span class="text-muted">Type:</span>
+                                {{ value.fingerprint_type }},
+                                <span class="text-muted">Fingerprint:</span>
+                                {{ value.fingerprint }}
+                              </template>
+                              <template v-else>{{ value }}</template>
+                            </li>
+                          </ul>
+                        </div>
+                        <div v-else>{{ record.values }}</div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>
@@ -136,8 +173,8 @@ const domainFiles = [
 
 // Utility function to trim long subdomains
 const trimSubdomain = (subdomain) => {
-  if (subdomain.length > 15) {
-    return `${subdomain.slice(0, 6)}...${subdomain.slice(-6)}`;
+  if (subdomain.length > 20) {
+    return `${subdomain.slice(0, 10)}...${subdomain.slice(-10)}`;
   }
   return subdomain || "Root Domain";
 };
