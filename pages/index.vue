@@ -7,7 +7,7 @@
       class="w-full md:w-72 bg-darkless/40 backdrop-blur-xl p-6 border-r border-border/20 shadow-xl"
     >
       <h2 class="text-xl font-bold mb-6 text-primary flex items-center gap-2">
-        <Icon name="material-symbols:globe" class="w-6 h-6" />
+        <Icon name="material-symbols:globe" size="1.5rem" />
         Hack Club DNS
       </h2>
       <div class="space-y-1">
@@ -34,27 +34,41 @@
     <!-- Main Content -->
     <main class="flex-1 p-8 overflow-auto">
       <div class="max-w-6xl mx-auto">
-        <div class="flex flex-col gap-6 relative items-center">
-          <h1 class="text-4xl font-bold text-primary flex items-center gap-3">
-            <Icon name="material-symbols:dns" class="w-8 h-8" />
-            {{ selectedDomain.replace(".yaml", "") }}
-          </h1>
+        <div class="space-y-4">
+          <div class="flex items-center justify-between w-full">
+            <h1 class="text-2xl font-bold text-primary flex gap-3">
+              <Icon name="material-symbols:dns" size="2rem" />
+              {{ selectedDomain.replace(".yaml", "") }}
+            </h1>
+
+            <div class="flex items-center gap-2">
+              <button
+                class="w-10 h-10 flex items-center justify-center rounded-lg bg-red-500/20 hover:bg-red-500/30 transition-all duration-300 text-red-500"
+                title="Edit DNS Records"
+              >
+                <Icon name="material-symbols:edit-outline" size="1.25rem" />
+              </button>
+              <button
+                class="w-10 h-10 flex items-center justify-center rounded-lg bg-red-500/20 hover:bg-red-500/30 transition-all duration-300 text-red-500"
+                title="View Source"
+              >
+                <Icon name="material-symbols:code" size="1.25rem" />
+              </button>
+            </div>
+          </div>
 
           <!-- Search Bar -->
-          <div
-            class="w-full pl-10 pr-4 py-3 rounded-lg bg-darkless/40 backdrop-blur-md border border-border/20 text-snow placeholder-muted/60 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all duration-300"
-          >
+          <div class="relative">
             <Icon
               name="material-symbols:search-rounded"
-              class="text-muted absolute left-3 pointer-events-none"
+              class="text-muted absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
               size="1.5em"
             />
-            <!-- eslint-disable-next-line vue/html-self-closing -->
             <input
               v-model="searchQuery"
               type="text"
               placeholder="Search records and values..."
-              class="w-full bg-transparent focus:outline-none"
+              class="w-full pl-10 pr-4 py-3 rounded-lg bg-darkless/40 backdrop-blur-md border border-border/20 text-snow placeholder-muted/60 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all duration-300"
             />
           </div>
         </div>
@@ -78,7 +92,7 @@
           v-else-if="error"
           class="p-4 rounded-lg bg-yellow/10 border border-yellow/20 text-yellow flex items-center gap-2"
         >
-          <Icon name="material-symbols:warning-rounded" class="w-5 h-5" />
+          <Icon name="material-symbols:warning-rounded" size="2rem" />
           {{ error }}
         </div>
 
@@ -104,7 +118,7 @@
               >
                 <Icon
                   name="material-symbols:settop-component-rounded"
-                  class="w-5 h-5"
+                  size="1.5rem"
                 />
                 <span
                   v-html="highlightMatch(trimSubdomain(recordGroup.subdomain))"
@@ -112,7 +126,8 @@
               </h2>
               <Icon
                 name="icon-park-outline:down"
-                class="w-5 h-5 text-muted transition-transform duration-300"
+                size="1.5rem"
+                class="text-muted transition-transform duration-300"
                 :class="{ 'rotate-180': expanded[index] }"
               />
             </button>
@@ -187,7 +202,7 @@
                                 <span class="flex items-center gap-2">
                                   <Icon
                                     name="simple-icons:vercel"
-                                    class="w-4 h-4"
+                                    size="1rem"
                                   />
                                   <span class="text-muted"
                                     >Deployed on Vercel</span
@@ -239,10 +254,7 @@
                             "
                           >
                             <span class="flex items-center gap-2">
-                              <Icon
-                                name="simple-icons:vercel"
-                                class="w-4 h-4"
-                              />
+                              <Icon name="simple-icons:vercel" size="1rem" />
                               <span class="">Deployed on Vercel</span>
                             </span>
                           </template>
