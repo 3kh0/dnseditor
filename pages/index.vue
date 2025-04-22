@@ -2,36 +2,12 @@
   <div
     class="flex flex-col md:flex-row min-h-screen bg-gradient-to-br from-darker to-dark text-snow"
   >
-    <!-- Sidebar -->
-    <aside
-      class="w-full md:w-72 bg-darkless/40 backdrop-blur-xl p-6 border-r border-border/20 shadow-xl"
-    >
-      <h2 class="text-xl font-bold mb-6 text-primary flex items-center gap-2">
-        <Icon name="material-symbols:globe" size="1.5rem" />
-        Hack Club DNS
-      </h2>
-      <div class="space-y-1">
-        <button
-          v-for="(domain, index) in domainFiles"
-          :key="index"
-          class="w-full text-left px-4 py-3 rounded-lg transition-all duration-300 hover:scale-102 group"
-          :class="{
-            'bg-primary/20 text-primary border border-primary/20':
-              selectedDomain === domain,
-            'hover:bg-darkless/80': selectedDomain !== domain,
-          }"
-          @click="selectDomain(domain)"
-        >
-          <span class="line-clamp-1">{{ domain.replace(".yaml", "") }}</span>
-        </button>
-      </div>
-      <p class="text-sm text-muted mt-4">
-        Made by
-        <a href="https://3kh0.net" target="_blank" class="text-primary">3kh0</a>
-      </p>
-    </aside>
+    <Sidebar
+      :domain-files="domainFiles"
+      :selected-domain="selectedDomain"
+      @select-domain="selectDomain"
+    />
 
-    <!-- Main Content -->
     <main class="flex-1 p-8 overflow-auto">
       <div class="max-w-6xl mx-auto">
         <div class="space-y-4">
@@ -61,22 +37,7 @@
             </div>
           </div>
 
-          <!-- Search Bar -->
-          <div
-            class="relative w-full pl-10 pr-4 py-3 rounded-lg bg-darkless/40 backdrop-blur-md border border-border/20"
-          >
-            <Icon
-              name="material-symbols:search-rounded"
-              class="text-muted absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
-              size="1.5em"
-            />
-            <input
-              v-model="searchQuery"
-              type="text"
-              placeholder="Search records and values..."
-              class="w-full bg-transparent text-snow placeholder-muted/60 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all duration-300"
-            />
-          </div>
+          <Search v-model="searchQuery" />
         </div>
 
         <!-- X records found -->
@@ -127,155 +88,38 @@
                   size="1.5rem"
                 />
                 <span
-                  v-html="highlightMatch(trimSubdomain(recordGroup.subdomain))"
+                  v-html="highlightMatch(trim(recordGroup.subdomain))"
                 ></span>
               </h2>
-              <Icon
-                name="icon-park-outline:down"
-                size="1.5rem"
-                class="text-muted transition-transform duration-300"
-                :class="{ 'rotate-180': expanded[index] }"
-              />
+              <div class="flex items-center gap-2">
+                <a
+                  v-if="hasSite(recordGroup)"
+                  :href="buildUrl(recordGroup)"
+                  target="_blank"
+                  class="px-3 py-1.5 rounded-lg bg-primary/20 hover:bg-primary/30 text-primary text-sm transition-all duration-300 flex items-center gap-1"
+                  title="Open site in new tab"
+                  @click.stop
+                >
+                  <Icon name="material-symbols:open-in-new" size="1rem" />
+                  Open
+                </a>
+                <Icon
+                  name="icon-park-outline:down"
+                  size="1.5rem"
+                  class="text-muted transition-transform duration-300"
+                  :class="{ 'rotate-180': expanded[index] }"
+                />
+              </div>
             </button>
 
             <div
               v-show="expanded[index]"
               class="px-6 pb-6 transition-all duration-300"
             >
-              <div class="overflow-x-auto rounded-lg border border-border/10">
-                <table class="w-full">
-                  <thead>
-                    <tr class="bg-primary/10">
-                      <th class="px-6 py-3 text-left text-sm font-semibold">
-                        Type
-                      </th>
-                      <th class="px-6 py-3 text-left text-sm font-semibold">
-                        Value(s)
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody class="divide-y divide-border/10">
-                    <tr
-                      v-for="(record, idx) in recordGroup.records"
-                      :key="idx"
-                      class="group/row hover:bg-darkless/80"
-                    >
-                      <td class="px-6 py-4 text-sm font-medium">
-                        <span v-html="highlightMatch(record.type)"></span>
-                      </td>
-                      <td class="px-6 py-4 text-sm">
-                        <div v-if="Array.isArray(record.values)">
-                          <ul class="space-y-2">
-                            <li
-                              v-for="(value, valueIdx) in record.values"
-                              :key="valueIdx"
-                              class="group-hover/row:text-snow"
-                            >
-                              <template v-if="record.type === 'MX'">
-                                <span class="text-muted">Priority:</span>
-                                <span
-                                  v-if="
-                                    value &&
-                                    ('priority' in value ||
-                                      'preference' in value)
-                                  "
-                                  v-html="
-                                    highlightMatch(
-                                      (
-                                        value.priority || value.preference
-                                      ).toString()
-                                    )
-                                  "
-                                ></span>
-                                <span v-else class="text-yellow"
-                                  >Invalid Priority</span
-                                >,
-                                <span class="text-muted">Exchange:</span>
-                                <span
-                                  v-if="value && 'exchange' in value"
-                                  v-html="highlightMatch(value.exchange)"
-                                ></span>
-                                <span v-else class="text-yellow"
-                                  >Invalid Exchange</span
-                                >
-                              </template>
-                              <template
-                                v-else-if="
-                                  record.type === 'CNAME' &&
-                                  isVercelDomain(value)
-                                "
-                              >
-                                <span class="flex items-center gap-2">
-                                  <Icon
-                                    name="simple-icons:vercel"
-                                    size="1rem"
-                                  />
-                                  <span class="text-muted"
-                                    >Deployed on Vercel</span
-                                  >
-                                </span>
-                              </template>
-                              <template v-else-if="record.type === 'TXT'">
-                                <span
-                                  class="font-mono text-sm"
-                                  v-html="highlightMatch(value)"
-                                ></span>
-                              </template>
-                              <template v-else>
-                                <span
-                                  v-html="highlightMatch(value.toString())"
-                                ></span>
-                              </template>
-                            </li>
-                          </ul>
-                        </div>
-                        <div v-else>
-                          <template
-                            v-if="
-                              record.type === 'MX' && isMXRecord(record.value)
-                            "
-                          >
-                            <span class="text-muted">Priority: </span>
-                            <span
-                              v-html="
-                                highlightMatch(
-                                  (
-                                    record.value.priority ||
-                                    record.value.preference
-                                  ).toString()
-                                )
-                              "
-                            ></span
-                            >,
-                            <span class="text-muted">Exchange: </span>
-                            <span
-                              v-html="highlightMatch(record.value.exchange)"
-                            ></span>
-                          </template>
-                          <template
-                            v-else-if="
-                              (record.type === 'CNAME' ||
-                                record.type === 'ALIAS') &&
-                              isVercelDomain(record.values)
-                            "
-                          >
-                            <span class="flex items-center gap-2">
-                              <Icon name="simple-icons:vercel" size="1rem" />
-                              <span class="">Deployed on Vercel</span>
-                            </span>
-                          </template>
-
-                          <template v-else>
-                            <span
-                              v-html="highlightMatch(record.values.toString())"
-                            ></span>
-                          </template>
-                        </div>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+              <RecordView
+                :records="recordGroup.records"
+                :search-query="searchQuery"
+              />
             </div>
           </div>
         </div>
@@ -285,17 +129,8 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from "vue";
 import yaml from "js-yaml"; // Import js-yaml for YAML parsing
 
-const loading = ref(true);
-const error = ref(null);
-const records = ref([]);
-const expanded = ref([]);
-const selectedDomain = ref("hackclub.com.yaml");
-const searchQuery = ref("");
-
-// List of domain files
 const domainFiles = [
   "aisafety.dance.yaml",
   "bank.engineering.yaml",
@@ -314,8 +149,14 @@ const domainFiles = [
   "nonprofit.new.yaml",
 ];
 
-// Utility function to trim long subdomains
-const trimSubdomain = (subdomain) => {
+const loading = ref(true);
+const error = ref(null);
+const records = ref([]);
+const expanded = ref([]);
+const selectedDomain = ref("hackclub.com.yaml");
+const searchQuery = ref("");
+
+const trim = (subdomain) => {
   if (subdomain.length > 20) {
     return `${subdomain.slice(0, 10)}...${subdomain.slice(-10)}`;
   }
@@ -380,15 +221,11 @@ const filteredRecords = computed(() => {
   const query = searchQuery.value.toLowerCase();
 
   return records.value.filter((group) => {
-    // Search in subdomain
     if (group.subdomain.toLowerCase().includes(query)) return true;
 
-    // Search in records
     return group.records.some((record) => {
-      // Search in type
       if (record.type.toLowerCase().includes(query)) return true;
 
-      // Search in values
       if (Array.isArray(record.values)) {
         return record.values.some((value) => {
           if (typeof value === "object") {
@@ -411,21 +248,38 @@ const selectDomain = (domain) => {
   fetchRecords(domain);
 };
 
-const isVercelDomain = (value) => {
-  return (
-    value &&
-    typeof value === "string" &&
-    value.includes("cname.vercel-dns.com.")
-  );
+const hasSite = (recordGroup) => {
+  const validTypes = ["A", "AAAA", "CNAME", "ALIAS"];
+  return recordGroup.records.some((record) => {
+    if (!validTypes.includes(record.type)) return false;
+
+    // Check for CNAME records pointing to amazonses.com
+    if (record.type === "CNAME") {
+      const values = Array.isArray(record.values)
+        ? record.values
+        : [record.values];
+      return !values.some(
+        (value) =>
+          typeof value === "string" &&
+          (value.includes("amazonses.com") ||
+            value.includes("_acme.deno.dev") ||
+            value.includes("acm-validations") ||
+            value.includes("custom-email-domain.stripe.com") ||
+            value.includes("verify.bing.com"))
+      );
+    }
+
+    return true;
+  });
 };
 
-const isMXRecord = (value) => {
-  return (
-    value &&
-    typeof value === "object" &&
-    ("preference" in value || "priority" in value) &&
-    "exchange" in value
-  );
+const buildUrl = (recordGroup) => {
+  const domain = selectedDomain.value.replace(".yaml", "");
+  let subdomain = recordGroup.subdomain;
+  if (subdomain === "@") {
+    subdomain = "";
+  }
+  return `https://${subdomain ? `${subdomain}.` : ""}${domain}`;
 };
 
 // Fetch records for the default domain on mount
