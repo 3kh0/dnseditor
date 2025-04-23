@@ -19,18 +19,25 @@
         <h3 class="text-xl font-bold text-snow">And that's all done!</h3>
 
         <p class="text-muted">
-          Your pull request with your changes will opened shortly, check your
-          GitHub notifications for the PR. The next step is to wait for the PR
-          to be approved and merged. Once the PR is merged, your changes will be
-          live.
+          Your DNS records have been successfully submitted for review. The next
+          step is to wait for the PR to be approved and merged. Once the PR is
+          merged, your changes will be live.
         </p>
 
         <div class="flex gap-2 mt-4">
-          <button
+          <a
+            v-if="prUrl"
+            :href="prUrl"
+            target="_blank"
             class="px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary/80 transition-colors"
+          >
+            View Pull Request
+          </a>
+          <button
+            class="px-4 py-2 rounded-lg bg-primary/20 text-primary hover:bg-primary/30 transition-colors"
             @click="$emit('close')"
           >
-            Yippee!
+            Close
           </button>
         </div>
       </div>
@@ -41,6 +48,7 @@
 <script setup>
 defineProps({
   show: Boolean,
+  prUrl: String,
 });
 
 defineEmits(["close"]);

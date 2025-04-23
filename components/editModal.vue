@@ -144,7 +144,7 @@
         </div>
       </div>
     </div>
-    <Success :show="showSuccess" @close="handleSuccessClose" />
+    <Success :show="showSuccess" :pr-url="prUrl" @close="handleSuccessClose" />
   </div>
 </template>
 
@@ -159,12 +159,13 @@ const mode = ref(null);
 const error = ref(null);
 const isSubmitting = ref(false);
 const showSuccess = ref(false);
+const prUrl = ref("");
 
 const form = ref({
   subdomain: "",
   type: "A",
   value: "",
-  ttl: 3600,
+  ttl: 600,
 });
 
 // Computed property to check if form is valid
@@ -215,9 +216,11 @@ const submit = async () => {
       throw new Error(data.message || "Failed to submit record");
     }
 
+    const data = await response.json();
     emit("submit", form.value);
     close();
-    showSuccess.value = true; // Show success popup after closing the modal
+    prUrl.value = data.prUrl;
+    showSuccess.value = true;
   } catch (err) {
     error.value = err.message;
   } finally {

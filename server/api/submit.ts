@@ -14,14 +14,12 @@ export default defineEventHandler(async (event) => {
     });
   }
 
-  // Initialize Octokit with GitHub token
   const octokit = new Octokit({
     auth: process.env.GITHUB_TOKEN,
   });
 
   try {
     console.log(`Fetching current content for ${body.domain}`);
-    // Get the current file content
     const { data: fileData } = await octokit.repos.getContent({
       owner: "3kh0",
       repo: "dns",
@@ -29,37 +27,56 @@ export default defineEventHandler(async (event) => {
       ref: "main",
     });
 
-    console.log("Current file data:", fileData);
-
-    // Decode current content
+    // Decode current content and keep original
     const currentContent = Buffer.from(fileData.content, "base64").toString();
-    console.log("Current YAML content:", currentContent);
 
-    // Parse current YAML
+    // Parse YAML to find insertion point
     const dnsRecords = yaml.load(currentContent) || {};
-    console.log("Parsed DNS records:", dnsRecords);
+    const entries = Object.keys(dnsRecords);
 
-    // Add new record
-    if (!dnsRecords[body.record.subdomain]) {
-      dnsRecords[body.record.subdomain] = [];
+    // Find where to insert the new record
+    const subdomain = body.record.subdomain;
+    let insertIndex = currentContent.length; // Default to end of file
+
+    // Find position to insert new record while preserving format
+    const lines = currentContent.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      // Skip empty lines and comments
+      if (!line || line.startsWith("#")) continue;
+
+      // Look for domain definitions
+      const match = line.match(/^['"]?([^'":]*)['"]?\s*:/);
+      if (match && match[1] > subdomain) {
+        // Found insertion point
+        insertIndex = lines.slice(0, i).join("\n").length;
+        break;
+      }
     }
-    if (!Array.isArray(dnsRecords[body.record.subdomain])) {
-      dnsRecords[body.record.subdomain] = [dnsRecords[body.record.subdomain]];
-    }
 
-    dnsRecords[body.record.subdomain].push({
-      type: body.record.type,
-      ttl: body.record.ttl,
-      value: body.record.value,
-    });
+    // Format new record entry preserving style
+    const recordYaml = yaml
+      .dump({
+        [subdomain]: {
+          type: body.record.type,
+          ttl: body.record.ttl,
+          value: body.record.value,
+        },
+      })
+      .trim();
 
-    // Convert back to YAML
-    const updatedContent = yaml.dump(dnsRecords);
-    console.log("Updated YAML content:", updatedContent);
+    // Insert new record at the right position
+    const updatedContent =
+      currentContent.slice(0, insertIndex) +
+      (insertIndex > 0 ? "\n" : "") +
+      recordYaml +
+      (insertIndex < currentContent.length ? "\n" : "") +
+      currentContent.slice(insertIndex);
 
-    // Create a new branch
-    const timestamp = Date.now();
-    const branchName = `dns-update-${timestamp}`;
+    console.log("Updated content:", updatedContent);
+
+    // Create new branch and update
+    const branchName = `dns-update-${Date.now()}`;
     console.log(`Creating new branch: ${branchName}`);
 
     const { data: ref } = await octokit.git.getRef({
@@ -75,34 +92,37 @@ export default defineEventHandler(async (event) => {
       sha: ref.object.sha,
     });
 
-    console.log("Updating file contents");
     // Update file in new branch
     await octokit.repos.createOrUpdateFileContents({
       owner: "3kh0",
       repo: "dns",
       path: body.domain,
-      message: `Update DNS record for ${body.domain}`,
+      message: `Add DNS record: ${body.record.subdomain}.${body.domain}`,
       content: Buffer.from(updatedContent).toString("base64"),
       branch: branchName,
       sha: fileData.sha,
     });
 
-    console.log("Creating pull request");
     // Create pull request
     const { data: pr } = await octokit.pulls.create({
       owner: "3kh0",
       repo: "dns",
-      title: `DNS: Update records for ${body.domain}`,
+      title: `Add record for ${body.record.subdomain}.${body.domain.slice(
+        0,
+        -5
+      )}`,
       head: branchName,
       base: "main",
       body: `
 Changes requested through DNS Editor
 
-Domain: ${body.domain}
-Record Type: ${body.record.type}
-Subdomain: ${body.record.subdomain}
-Value: ${body.record.value}
-TTL: ${body.record.ttl}
+✨ New DNS Record:
+\`\`\`yaml
+${body.record.subdomain}:
+  type: ${body.record.type}
+  ttl: ${body.record.ttl}
+  value: ${body.record.value}
+\`\`\`
 
 Please review these changes carefully.
 `,
