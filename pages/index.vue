@@ -21,6 +21,7 @@
               <button
                 class="w-10 h-10 flex items-center justify-center rounded-lg bg-red-500/20 hover:bg-red-500/30 transition-all duration-300 text-red-500 cursor-pointer"
                 title="Edit DNS Records"
+                @click="showEditModal = true"
               >
                 <Icon name="material-symbols:edit-outline" size="1.25rem" />
               </button>
@@ -124,6 +125,12 @@
       </div>
     </main>
   </div>
+  <EditModal
+    :show="showEditModal"
+    :domain="selectedDomain"
+    @close="showEditModal = false"
+    @submit="handleRecordSubmit"
+  />
 </template>
 
 <script setup>
@@ -153,6 +160,12 @@ const records = ref([]);
 const expanded = ref([]);
 const selectedDomain = ref("hackclub.com.yaml");
 const searchQuery = ref("");
+const showEditModal = ref(false);
+
+const handleRecordSubmit = (record) => {
+  // This will be implemented later when we add the backend
+  console.log("New record:", record);
+};
 
 const trim = (subdomain) => {
   if (subdomain.length > 20) {
