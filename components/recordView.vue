@@ -4,7 +4,7 @@
       <thead>
         <tr class="bg-primary/10">
           <th class="px-6 py-3 text-left text-sm font-semibold">Type</th>
-          <th class="px-6 py-3 text-left text-sm font-semibold">Value(s)</th>
+          <th class="px-6 py-3 text-left text-sm font-semibold">Content</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-border/10">

@@ -19,7 +19,7 @@
 
             <div class="flex items-center gap-2">
               <button
-                class="w-10 h-10 flex items-center justify-center rounded-lg bg-red-500/20 hover:bg-red-500/30 transition-all duration-300 text-red-500"
+                class="w-10 h-10 flex items-center justify-center rounded-lg bg-red-500/20 hover:bg-red-500/30 transition-all duration-300 text-red-500 cursor-pointer"
                 title="Edit DNS Records"
               >
                 <Icon name="material-symbols:edit-outline" size="1.25rem" />
@@ -39,8 +39,6 @@
 
           <Search v-model="searchQuery" />
         </div>
-
-        <!-- X records found -->
 
         <div v-if="filteredRecords.length > 0" class="text-muted text-sm mt-4">
           {{ filteredRecords.length }} records found
