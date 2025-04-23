@@ -19,6 +19,9 @@ export default defineEventHandler(async (event) => {
   });
 
   try {
+    // Get subdomain from request body
+    const subdomain = body.record.subdomain;
+
     console.log(`Fetching current content for ${body.domain}`);
     const { data: fileData } = await octokit.repos.getContent({
       owner: "3kh0",
@@ -34,43 +37,66 @@ export default defineEventHandler(async (event) => {
     const dnsRecords = yaml.load(currentContent) || {};
     const entries = Object.keys(dnsRecords);
 
-    // Find where to insert the new record
-    const subdomain = body.record.subdomain;
-    let insertIndex = currentContent.length; // Default to end of file
-
-    // Find position to insert new record while preserving format
+    // Find the exact position to insert while preserving format
     const lines = currentContent.split("\n");
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-      // Skip empty lines and comments
-      if (!line || line.startsWith("#")) continue;
+    let insertIndex = currentContent.length;
+    let currentIndentation = "  "; // Default indentation
 
-      // Look for domain definitions
-      const match = line.match(/^['"]?([^'":]*)['"]?\s*:/);
-      if (match && match[1] > subdomain) {
-        // Found insertion point
-        insertIndex = lines.slice(0, i).join("\n").length;
+    // First pass: find indentation style
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const indentMatch = line.match(/^(\s+)/);
+      if (indentMatch) {
+        currentIndentation = indentMatch[1];
         break;
       }
     }
 
-    // Format new record entry preserving style
-    const recordYaml = yaml
-      .dump({
-        [subdomain]: {
-          type: body.record.type,
-          ttl: body.record.ttl,
-          value: body.record.value,
-        },
-      })
-      .trim();
+    // Second pass: find insertion point
+    let inRecord = false;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+
+      // Skip empty lines, comments, and document separators
+      if (!line || line.startsWith("#") || line === "---") continue;
+
+      // Check if we're inside a multi-line record
+      if (line.endsWith(":")) {
+        inRecord = true;
+        continue;
+      }
+
+      // If we're not in a record and line starts with a domain
+      if (!inRecord) {
+        const match = line.match(/^['"]?([^'":]*)['"]?\s*:/);
+        if (match && match[1] > subdomain) {
+          // Found insertion point - get position at start of line
+          insertIndex = lines.slice(0, i).join("\n").length;
+          if (insertIndex > 0) insertIndex += "\n".length;
+          break;
+        }
+      }
+
+      // Check if we're exiting a record
+      if (inRecord && !line.startsWith("-") && !line.startsWith(" ")) {
+        inRecord = false;
+      }
+    }
+
+    // Format new record using the same indentation style
+    const recordYaml = `${subdomain}:
+${currentIndentation}type: ${body.record.type}
+${currentIndentation}ttl: ${body.record.ttl}
+${currentIndentation}value: ${body.record.value}`;
 
     // Insert new record at the right position
     const updatedContent =
       currentContent.slice(0, insertIndex) +
-      (insertIndex > 0 ? "\n" : "") +
+      (insertIndex > 0 && !currentContent.slice(0, insertIndex).endsWith("\n\n")
+        ? "\n"
+        : "") +
       recordYaml +
-      (insertIndex < currentContent.length ? "\n" : "") +
+      (insertIndex < currentContent.length ? "\n\n" : "") +
       currentContent.slice(insertIndex);
 
     console.log("Updated content:", updatedContent);
