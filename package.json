@@ -1,0 +1,30 @@
+{
+  "name": "dnseditor",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "@iconify-json/icon-park-outline": "^1.2.2",
+    "@iconify-json/material-symbols": "^1.2.20",
+    "@iconify-json/simple-icons": "^1.2.33",
+    "@nuxt/eslint": "1.3.0",
+    "@nuxt/icon": "1.12.0",
+    "@octokit/rest": "^21.1.1",
+    "@tailwindcss/vite": "^4.1.5",
+    "dotenv": "^16.5.0",
+    "eslint": "^9.26.0",
+    "js-yaml": "^4.1.0",
+    "nuxt": "^3.17.2",
+    "tailwindcss": "^4.1.5",
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.1",
+    "yaml": "^2.7.1"
+  },
+  "packageManager": "pnpm@10.9.0+sha512.0486e394640d3c1fb3c9d43d49cf92879ff74f8516959c235308f5a8f62e2e19528a65cdc2a3058f587cde71eba3d5b56327c8c33a97e4c4051ca48a10ca2d5f"
+}
