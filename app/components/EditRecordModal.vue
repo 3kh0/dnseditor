@@ -213,7 +213,8 @@ function onSuccessClose() {
 
           <p class="text-xs text-muted">
             This will create a pull request on
-            <code class="text-snow">hackclub/dns</code>. Editing existing records is not supported, yet...
+            <code class="text-snow">hackclub/dns</code>. Editing existing records is not supported,
+            yet...
           </p>
         </div>
 
@@ -322,9 +323,7 @@ function onSuccessClose() {
                   class="w-full rounded-lg border border-border/20 bg-darker/50 px-4 py-2 text-white"
                   placeholder="Leave empty for default"
                 />
-                <p class="mt-1 text-xs text-muted">
-                  Only set this if you need a custom TTL.
-                </p>
+                <p class="mt-1 text-xs text-muted">Only set this if you need a custom TTL.</p>
               </div>
             </div>
           </div>

@@ -235,7 +235,10 @@ function describeData(data: unknown) {
 }
 
 function hasContactInfo(value: string) {
-  return /\b[UW][A-Z0-9]{8,12}\b/.test(value) || /[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+/.test(value);
+  return (
+    /\b[UW][A-Z0-9]{8,12}\b/.test(value) ||
+    /[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+/.test(value)
+  );
 }
 
 function normalizeRecordValue(type: string, rawValue: unknown, mxPreference: number) {
