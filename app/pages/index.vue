@@ -3,8 +3,8 @@ import { DEFAULT_DOMAIN, DOMAIN_FILES, type DomainFile } from "#shared/dns";
 import type { DnsRecordGroup, DnsValue } from "#shared/types/dns";
 
 useSeoMeta({
-  title: "Hack Club DNS Viewer",
-  description: "Browse DNS records managed in the Hack Club DNS repository.",
+  title: "Hack Club DNS Editor",
+  description: "Browse Hack Club DNS records and open pull requests to add subdomains.",
 });
 
 const selectedDomain = ref<DomainFile>(DEFAULT_DOMAIN);
@@ -98,9 +98,7 @@ function siteUrl(group: DnsRecordGroup) {
 </script>
 
 <template>
-  <div
-    class="flex min-h-screen flex-col bg-gradient-to-br from-darker to-dark text-snow md:flex-row"
-  >
+  <div class="flex min-h-screen flex-col bg-linear-to-br from-darker to-dark text-snow md:flex-row">
     <DomainSidebar
       :domain-files="DOMAIN_FILES"
       :selected-domain="selectedDomain"
@@ -229,6 +227,10 @@ function siteUrl(group: DnsRecordGroup) {
       </div>
     </main>
 
-    <EditNoticeModal :show="showEditModal" @close="showEditModal = false" />
+    <EditRecordModal
+      :show="showEditModal"
+      :domain="selectedDomain"
+      @close="showEditModal = false"
+    />
   </div>
 </template>
