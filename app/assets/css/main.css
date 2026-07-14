@@ -1,7 +1,19 @@
 @import "tailwindcss";
 
+html {
+  color-scheme: dark;
+}
+
 body {
+  min-width: 320px;
+  margin: 0;
   background-color: var(--color-darker);
+}
+
+button,
+a,
+input {
+  -webkit-tap-highlight-color: transparent;
 }
 
 @theme {

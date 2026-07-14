@@ -1,8 +1,33 @@
 # Hack Club DNS ~~Editor~~ Viewer
 
-Simple Nuxt app to view Hack Club's DNS records, pulling data from the [`hackclub/dns`](https://github.com/hackclub/dns) repo.
+Nuxt 4 app for viewing Hack Club's DNS records, pulling data from the [`hackclub/dns`](https://github.com/hackclub/dns) repo through a typed server route.
 
-This was intended to be able to suggest changes to the records in the form of pull requests performed by the server, but that has been scraped to due organizational headaches.
+This was originally intended to suggest changes in the form of pull requests, but that feature was never shipped.
+
+## Development
+
+This project uses [Bun](https://bun.sh/):
+
+```bash
+bun install
+bun run dev
+```
+
+Before opening a pull request, run:
+
+```bash
+bun run lint
+bun run fmt:check
+bun run typecheck
+bun run build
+```
+
+Linting uses [oxlint](https://oxc.rs/docs/guide/usage/linter); formatting uses [oxfmt](https://oxc.rs/docs/guide/usage/formatter). CI runs each check as a separate job so failures surface independently.
+
+```bash
+bun run lint:fix   # auto-fix lint issues where possible
+bun run fmt          # format the codebase
+```
 
 ## Live Demo
 

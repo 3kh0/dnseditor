@@ -1,11 +1,26 @@
 import { Octokit } from "@octokit/rest";
 import YAML from "yaml";
 
+interface SubmitBody {
+  domain?: string;
+  record?: {
+    subdomain?: string;
+    ttl?: number;
+    type?: string;
+    value?: unknown;
+  };
+}
+
 export default defineEventHandler(async (event) => {
-  const body = await readBody(event);
+  const body = await readBody<SubmitBody>(event);
 
   // vibe check the request
-  if (!body.domain || !body.record) {
+  if (
+    !body.domain ||
+    !body.record?.subdomain ||
+    !body.record.type ||
+    body.record.value === undefined
+  ) {
     console.error("invalid request", body);
     throw createError({
       statusCode: 400,
@@ -28,6 +43,11 @@ export default defineEventHandler(async (event) => {
       path: body.domain,
       ref: "main",
     });
+
+    if (Array.isArray(fileData) || !("content" in fileData) || !fileData.content) {
+      throw new Error(`${body.domain} is not a readable file`);
+    }
+
     const currCon = Buffer.from(fileData.content, "base64").toString();
 
     // please be fucking normal
@@ -92,10 +112,7 @@ export default defineEventHandler(async (event) => {
     const { data: pr } = await octokit.pulls.create({
       owner: "3kh0",
       repo: "dns",
-      title: `Add record for ${body.record.subdomain}.${body.domain.slice(
-        0,
-        -5
-      )}`,
+      title: `Add record for ${body.record.subdomain}.${body.domain.slice(0, -5)}`,
       head: branch,
       base: "main",
       body: `
@@ -119,7 +136,11 @@ Please review these changes carefully before merging :D
     console.error("GitHub API error:", error);
     throw createError({
       statusCode: 500,
-      message: `Failed to create pull request: ${error.message}`,
+      message: `Failed to create pull request: ${errorMessage(error)}`,
     });
   }
 });
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Unknown GitHub API error";
+}
