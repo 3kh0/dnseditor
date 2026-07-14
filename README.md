@@ -1,8 +1,6 @@
-# Hack Club DNS ~~Editor~~ Viewer
+# Hack Club DNS Editor
 
-Nuxt 4 app for viewing Hack Club's DNS records, pulling data from the [`hackclub/dns`](https://github.com/hackclub/dns) repo through a typed server route.
-
-This was originally intended to suggest changes in the form of pull requests, but that feature was never shipped.
+A Nuxt app for browsing Hack Club's DNS records and opening pull requests to add subdomains on [`hackclub/dns`](https://github.com/hackclub/dns).
 
 ## Development
 
@@ -10,51 +8,6 @@ This project uses [Bun](https://bun.sh/):
 
 ```bash
 bun install
+cp .env.example .env   # then fill in GITHUB_TOKEN
 bun run dev
 ```
-
-Before opening a pull request, run:
-
-```bash
-bun run lint
-bun run fmt:check
-bun run typecheck
-bun run build
-```
-
-Linting uses [oxlint](https://oxc.rs/docs/guide/usage/linter); formatting uses [oxfmt](https://oxc.rs/docs/guide/usage/formatter). CI runs each check as a separate job so failures surface independently.
-
-```bash
-bun run lint:fix   # auto-fix lint issues where possible
-bun run fmt          # format the codebase
-```
-
-## Live Demo
-
-You can view it here: [dnsedit.3kh0.net](https://dnsedit.3kh0.net/)
-
-## Screenshots
-
-Subdomain listings for a single domain
-
-![image](https://github.com/user-attachments/assets/0af3c7c7-3bf5-4ba5-b103-6a52bfb9f5e7)
-
-Viewing a single domain and seeing the attached records
-
-![image](https://github.com/user-attachments/assets/d6ee4c21-7a2b-4f63-930f-9285d174a001)
-
-Edit menu to suggest changes, if the user opens this for any domain but dino.inc, they get warned that they will need HQ approval.
-
-![image](https://github.com/user-attachments/assets/45583f11-d8ee-4753-80d2-582850596e9d)
-
-Form, plug in your values to rock and roll
-
-![image](https://github.com/user-attachments/assets/7abe8762-176f-4e60-a2ed-ddfc6e4d7d58)
-
-Success page
-
-![image](https://github.com/user-attachments/assets/6bbbef55-99ac-498b-8e92-34efd503134a)
-
-Test pull request making changes
-
-![image](https://github.com/user-attachments/assets/97d7e8a8-ce5a-440a-b48c-6f12b09499a5)
