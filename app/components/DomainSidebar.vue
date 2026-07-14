@@ -21,26 +21,26 @@ function labelFor(domain: DomainFile) {
 
 <template>
   <aside
-    class="w-full shrink-0 border-b border-border/20 bg-darkless/40 p-6 shadow-xl backdrop-blur-xl md:w-72 md:border-b-0 md:border-r"
+    class="w-full shrink-0 border-b border-border bg-black p-4 md:w-64 md:border-b-0 md:border-r"
   >
-    <h2 class="mb-6 flex items-center gap-2 text-xl font-bold text-primary">
-      <Icon name="material-symbols:globe" size="1.5rem" />
+    <h2 class="mb-4 flex items-center gap-2 px-2 text-sm font-semibold text-snow">
+      <Icon name="material-symbols:globe" size="1.25rem" class="text-primary" />
       Hack Club DNS
     </h2>
 
     <nav aria-label="Domains" class="space-y-4">
       <div>
-        <p class="mb-2 px-4 text-xs text-muted">📌 Pinned</p>
-        <div class="space-y-1">
+        <p class="mb-1 px-2 text-xs font-medium tracking-wide text-muted uppercase">Pinned</p>
+        <div class="space-y-px">
           <button
             v-for="domain in pinned"
             :key="domain"
             type="button"
-            class="w-full rounded-lg px-4 py-3 text-left transition-colors"
+            class="w-full rounded-md px-2 py-1.5 text-left text-sm transition-colors"
             :class="
               selectedDomain === domain
-                ? 'border border-primary/20 bg-primary/20 text-primary'
-                : 'hover:bg-darkless/80'
+                ? 'bg-darkless font-medium text-snow'
+                : 'text-muted hover:bg-darkless/60 hover:text-snow'
             "
             @click="emit('selectDomain', domain)"
           >
@@ -50,17 +50,17 @@ function labelFor(domain: DomainFile) {
       </div>
 
       <div>
-        <p class="mb-2 px-4 text-xs text-muted">All domains</p>
-        <div class="space-y-1">
+        <p class="mb-1 px-2 text-xs font-medium tracking-wide text-muted uppercase">All domains</p>
+        <div class="space-y-px">
           <button
             v-for="domain in domainFiles"
             :key="domain"
             type="button"
-            class="w-full rounded-lg px-4 py-3 text-left transition-colors"
+            class="w-full rounded-md px-2 py-1.5 text-left text-sm transition-colors"
             :class="
               selectedDomain === domain
-                ? 'border border-primary/20 bg-primary/20 text-primary'
-                : 'hover:bg-darkless/80'
+                ? 'bg-darkless font-medium text-snow'
+                : 'text-muted hover:bg-darkless/60 hover:text-snow'
             "
             @click="emit('selectDomain', domain)"
           >
@@ -70,7 +70,7 @@ function labelFor(domain: DomainFile) {
       </div>
     </nav>
 
-    <p class="mt-4 text-sm text-muted">
+    <p class="mt-6 px-2 text-xs text-muted">
       Made by
       <a href="https://3kh0.net" target="_blank" rel="noreferrer" class="text-primary">3kh0</a>
     </p>

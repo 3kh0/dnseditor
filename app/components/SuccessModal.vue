@@ -27,7 +27,7 @@ const emit = defineEmits<{
       />
 
       <div
-        class="relative mx-4 w-full max-w-xl rounded-xl border border-border/20 bg-darkless p-6 shadow-xl"
+        class="relative mx-4 w-full max-w-xl rounded-xl border border-border bg-dark p-6 shadow-2xl"
       >
         <div class="flex flex-col items-center gap-4 text-center">
           <div class="text-green">
