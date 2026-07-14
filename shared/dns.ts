@@ -9,6 +9,7 @@ export const DOMAIN_FILES = [
   "hack.club.yaml",
   "hackclub.app.yaml",
   "hackclub.com.yaml",
+  "hackclub.community.yaml",
   "hackclub.io.yaml",
   "hackclub.org.yaml",
   "hackedu.us.yaml",
