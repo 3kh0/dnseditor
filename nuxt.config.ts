@@ -6,10 +6,16 @@ export default defineNuxtConfig({
   css: ["~/assets/css/main.css"],
 
   runtimeConfig: {
-    githubToken: "",
+    githubAppClientId: "",
+    githubAppClientSecret: "",
+    githubAppSlug: "",
+    sessionSecret: "",
     dnsGithubOwner: "hackclub",
     dnsGithubRepo: "dns",
     dnsGithubBranch: "main",
+    public: {
+      appUrl: "",
+    },
   },
 
   vite: {
