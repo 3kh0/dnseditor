@@ -6,7 +6,7 @@
       "name": "dnseditor",
       "dependencies": {
         "@iconify-json/icon-park-outline": "^1.2.2",
-        "@iconify-json/material-symbols": "^1.2.20",
+        "@iconify-json/material-symbols": "^1.2.85",
         "@iconify-json/simple-icons": "^1.2.33",
         "@octokit/rest": "^22.0.1",
         "nuxt": "^4.4.8",
@@ -178,7 +178,7 @@
 
     "@iconify-json/icon-park-outline": ["@iconify-json/icon-park-outline@1.2.4", "", { "dependencies": { "@iconify/types": "*" } }, "sha512-NyZxXe2gD2TbTOyoRRMdtEJhr6i2KQCdDlYYoOn5oZLndQjwpIhw79hzeFhXvP38/o40D3gQ+l+IaSJgbB+0TQ=="],
 
-    "@iconify-json/material-symbols": ["@iconify-json/material-symbols@1.2.84", "", { "dependencies": { "@iconify/types": "*" } }, "sha512-DWwjwrrzVNyMShkis47exANpi4uXUSoRE7/1rnOct9yO3SkMbt2I8386V/ou5od22us13bKkfwHitK2zK3Ah3g=="],
+    "@iconify-json/material-symbols": ["@iconify-json/material-symbols@1.2.85", "", { "dependencies": { "@iconify/types": "*" } }, "sha512-FrnwVJvD1nbLWUS2Zw7LPgTT/8Rq3l1821GsQl/IXjA1DKloaDVpQ8Ugk0IndzlRQrlPywr0a5lN/WWPB4naEA=="],
 
     "@iconify-json/simple-icons": ["@iconify-json/simple-icons@1.2.90", "", { "dependencies": { "@iconify/types": "*" } }, "sha512-zt2o2ZvQpHVvZJARIkZ51RnaHY2oqcPJMvHE+mVnxkSr+c33fnX4gciiXu+wyX5ei+s0qbVX1wD0DWBbaGBYMA=="],
 

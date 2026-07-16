@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@iconify-json/icon-park-outline": "^1.2.2",
-    "@iconify-json/material-symbols": "^1.2.20",
+    "@iconify-json/material-symbols": "^1.2.85",
     "@iconify-json/simple-icons": "^1.2.33",
     "@octokit/rest": "^22.0.1",
     "nuxt": "^4.4.8",
