@@ -1,46 +1,37 @@
 <script setup lang="ts">
-interface Segment {
-  highlighted: boolean;
-  text: string;
+interface Seg {
+  h: boolean;
+  t: string;
 }
 
-const props = defineProps<{
-  query?: string;
-  text: string;
-}>();
+const props = defineProps<{ query?: string; text: string }>();
 
-const segments = computed<Segment[]>(() => {
-  const query = props.query?.trim();
-  if (!query) return [{ highlighted: false, text: props.text }];
+const segments = computed<Seg[]>(() => {
+  const q = props.query?.trim();
+  if (!q) return [{ h: false, t: props.text }];
 
-  const output: Segment[] = [];
-  const haystack = props.text.toLocaleLowerCase();
-  const needle = query.toLocaleLowerCase();
-  let cursor = 0;
-  let match = haystack.indexOf(needle);
+  const out: Seg[] = [];
+  const hay = props.text.toLocaleLowerCase();
+  const needle = q.toLocaleLowerCase();
+  let cur = 0;
+  let m = hay.indexOf(needle);
 
-  while (match !== -1) {
-    if (match > cursor) {
-      output.push({ highlighted: false, text: props.text.slice(cursor, match) });
-    }
-
-    const end = match + query.length;
-    output.push({ highlighted: true, text: props.text.slice(match, end) });
-    cursor = end;
-    match = haystack.indexOf(needle, cursor);
+  while (m !== -1) {
+    if (m > cur) out.push({ h: false, t: props.text.slice(cur, m) });
+    const end = m + q.length;
+    out.push({ h: true, t: props.text.slice(m, end) });
+    cur = end;
+    m = hay.indexOf(needle, cur);
   }
 
-  if (cursor < props.text.length) {
-    output.push({ highlighted: false, text: props.text.slice(cursor) });
-  }
-
-  return output.length ? output : [{ highlighted: false, text: props.text }];
+  if (cur < props.text.length) out.push({ h: false, t: props.text.slice(cur) });
+  return out.length ? out : [{ h: false, t: props.text }];
 });
 </script>
 
 <template>
-  <template v-for="(segment, index) in segments" :key="index">
-    <mark v-if="segment.highlighted" class="bg-primary/20 text-primary">{{ segment.text }}</mark>
-    <template v-else>{{ segment.text }}</template>
+  <template v-for="(s, i) in segments" :key="i">
+    <mark v-if="s.h" class="bg-primary/20 text-primary">{{ s.t }}</mark>
+    <template v-else>{{ s.t }}</template>
   </template>
 </template>

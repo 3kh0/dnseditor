@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { bareDomain, fmtDnsValue } from "#shared/dns";
 import type { DnsMxValue, DnsRecordGroup, DnsValue } from "#shared/types/dns";
 
 const props = defineProps<{
@@ -15,65 +16,46 @@ interface Row {
   value: DnsValue;
 }
 
-const bareDomain = computed(() => props.domain.replace(/\.yaml$/, ""));
+const bare = computed(() => bareDomain(props.domain));
 
 const rows = computed<Row[]>(() =>
-  props.groups.flatMap((group) =>
-    group.records.flatMap((record) =>
-      (record.values.length ? record.values : [""]).map((value) => ({
-        siteUrl: siteUrlFor(group.subdomain, record.type, value),
-        subdomain: group.subdomain,
-        ttl: record.ttl,
-        type: record.type,
+  props.groups.flatMap((g) =>
+    g.records.flatMap((r) =>
+      (r.values.length ? r.values : [""]).map((value) => ({
+        siteUrl: siteUrl(g.subdomain, r.type, value),
+        subdomain: g.subdomain,
+        ttl: r.ttl,
+        type: r.type,
         value,
       })),
     ),
   ),
 );
 
-function isMxValue(value: DnsValue): value is DnsMxValue {
-  return typeof value === "object" && value !== null;
-}
+const isMx = (v: DnsValue): v is DnsMxValue => typeof v === "object" && v !== null;
 
-function isVercel(type: string, value: DnsValue) {
-  return (
-    (type === "CNAME" || type === "ALIAS") &&
-    typeof value === "string" &&
-    value.includes("cname.vercel-dns.com.")
-  );
-}
+const isVercel = (type: string, v: DnsValue) =>
+  (type === "CNAME" || type === "ALIAS") &&
+  typeof v === "string" &&
+  v.includes("cname.vercel-dns.com.");
 
-function formatValue(value: DnsValue) {
-  return typeof value === "object" ? JSON.stringify(value) : String(value);
-}
+const displayName = (sub: string) => (!sub || sub === "@" ? bare.value : `${sub}.${bare.value}`);
 
-function displayName(subdomain: string) {
-  if (!subdomain || subdomain === "@") return bareDomain.value;
-  return `${subdomain}.${bareDomain.value}`;
-}
+const SKIP = [
+  "amazonses.com",
+  "_acme.deno.dev",
+  "acm-validations",
+  "custom-email-domain.stripe.com",
+  "verify.bing.com",
+];
 
-function siteUrlFor(subdomain: string, type: string, value: DnsValue) {
-  const validTypes = new Set(["A", "AAAA", "CNAME", "ALIAS"]);
-  if (!validTypes.has(type)) return null;
-
-  const nonSiteTargets = [
-    "amazonses.com",
-    "_acme.deno.dev",
-    "acm-validations",
-    "custom-email-domain.stripe.com",
-    "verify.bing.com",
-  ];
-
-  if (
-    type === "CNAME" &&
-    typeof value === "string" &&
-    nonSiteTargets.some((target) => value.includes(target))
-  ) {
+function siteUrl(sub: string, type: string, value: DnsValue) {
+  if (!new Set(["A", "AAAA", "CNAME", "ALIAS"]).has(type)) return null;
+  if (type === "CNAME" && typeof value === "string" && SKIP.some((t) => value.includes(t))) {
     return null;
   }
-
-  const prefix = !subdomain || subdomain === "@" ? "" : `${subdomain}.`;
-  return `https://${prefix}${bareDomain.value}`;
+  const prefix = !sub || sub === "@" ? "" : `${sub}.`;
+  return `https://${prefix}${bare.value}`;
 }
 </script>
 
@@ -98,8 +80,8 @@ function siteUrlFor(subdomain: string, type: string, value: DnsValue) {
         </thead>
         <tbody class="divide-y divide-border/60">
           <tr
-            v-for="(row, index) in rows"
-            :key="index"
+            v-for="(row, i) in rows"
+            :key="i"
             class="text-sm transition-colors hover:bg-darkless/60"
           >
             <td class="max-w-64 truncate px-4 py-2.5 text-snow" :title="displayName(row.subdomain)">
@@ -108,8 +90,8 @@ function siteUrlFor(subdomain: string, type: string, value: DnsValue) {
             <td class="px-4 py-2.5 font-medium text-snow">
               <HighlightedText :text="row.type" :query="searchQuery" />
             </td>
-            <td class="max-w-96 truncate px-4 py-2.5 text-muted" :title="formatValue(row.value)">
-              <template v-if="row.type === 'MX' && isMxValue(row.value)">
+            <td class="max-w-96 truncate px-4 py-2.5 text-muted" :title="fmtDnsValue(row.value)">
+              <template v-if="row.type === 'MX' && isMx(row.value)">
                 <span>Priority: </span>
                 <span
                   v-if="row.value.priority !== undefined || row.value.preference !== undefined"
@@ -141,13 +123,11 @@ function siteUrlFor(subdomain: string, type: string, value: DnsValue) {
                 class="text-snow"
                 :class="{ 'font-mono text-xs': row.type === 'TXT' }"
               >
-                <HighlightedText :text="formatValue(row.value)" :query="searchQuery" />
+                <HighlightedText :text="fmtDnsValue(row.value)" :query="searchQuery" />
               </span>
               <span v-else>No value</span>
             </td>
-            <td class="px-4 py-2.5 whitespace-nowrap text-muted">
-              {{ row.ttl ?? "Auto" }}
-            </td>
+            <td class="px-4 py-2.5 whitespace-nowrap text-muted">{{ row.ttl ?? "Auto" }}</td>
             <td class="px-4 py-2.5 text-right">
               <a
                 v-if="row.siteUrl"

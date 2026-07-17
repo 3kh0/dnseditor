@@ -2,11 +2,11 @@
 defineProps<{
   show: boolean;
   prUrl?: string;
+  needsManualPr?: boolean;
+  viaApp?: string | null;
 }>();
 
-const emit = defineEmits<{
-  close: [];
-}>();
+const emit = defineEmits<{ close: [] }>();
 </script>
 
 <template>
@@ -34,11 +34,26 @@ const emit = defineEmits<{
             <Icon name="material-symbols:check-circle" size="4em" />
           </div>
 
-          <h3 id="success-title" class="text-xl font-bold text-snow">And that's all done!</h3>
+          <h3 id="success-title" class="text-xl font-bold text-snow">
+            {{ needsManualPr ? "Almost there!" : "And that's all done!" }}
+          </h3>
 
           <p class="text-muted">
-            Your DNS record has been submitted for review. Wait for the PR to be approved and
-            merged. Once it merges, your changes will be live.
+            <template v-if="needsManualPr">
+              Your changes are on a branch in your fork. Open the pull request on GitHub to finish
+              submitting it for review. Opening in the browser will not show the GitHub App badge —
+              only API-opened PRs do.
+            </template>
+            <template v-else>
+              Your DNS record has been submitted for review. Wait for the PR to be approved and
+              merged. Once it merges, your changes will be live.
+            </template>
+          </p>
+
+          <p v-if="viaApp && !needsManualPr" class="text-xs text-muted">
+            Opened as you
+            <span class="text-snow">with {{ viaApp }}</span>
+            (native GitHub App attribution).
           </p>
 
           <div class="mt-4 flex gap-2">
@@ -49,7 +64,7 @@ const emit = defineEmits<{
               rel="noreferrer"
               class="rounded-lg bg-primary px-4 py-2 text-white transition-colors hover:bg-primary/80"
             >
-              View Pull Request
+              {{ needsManualPr ? "Open Pull Request on GitHub" : "View Pull Request" }}
             </a>
             <button
               type="button"

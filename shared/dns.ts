@@ -21,6 +21,26 @@ export const DEFAULT_DOMAIN = "hackclub.com.yaml";
 
 export type DomainFile = (typeof DOMAIN_FILES)[number];
 
-export function isDomainFile(value: string): value is DomainFile {
-  return DOMAIN_FILES.some((domain) => domain === value);
-}
+export const isDomainFile = (v: string): v is DomainFile =>
+  (DOMAIN_FILES as readonly string[]).includes(v);
+
+export const bareDomain = (d: string) => d.replace(/\.yaml$/, "");
+
+export const isSubdomain = (v: string) => /^[A-Za-z0-9_]([A-Za-z0-9._-]*[A-Za-z0-9_])?$/.test(v);
+
+export const hasContact = (v: string) =>
+  /\b[UW][A-Z0-9]{8,12}\b/.test(v) || /[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+/.test(v);
+
+export const isObj = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+export const fmtDnsValue = (v: unknown) => (typeof v === "object" ? JSON.stringify(v) : String(v));
+
+/** Zones managed via Cloudflare in octodns (proxy toggle available). */
+export const CF_PROXY_DOMAINS = new Set(["hackclub.com.yaml"]);
+
+/** Record types Cloudflare can orange-cloud proxy. */
+export const CF_PROXY_TYPES = new Set(["A", "AAAA", "CNAME"]);
+
+export const supportsCfProxy = (domain: string, type?: string) =>
+  CF_PROXY_DOMAINS.has(domain) && (type === undefined || CF_PROXY_TYPES.has(type));

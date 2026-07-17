@@ -1,6 +1,32 @@
 import { Octokit } from "@octokit/rest";
 import YAML from "yaml";
-import { isDomainFile } from "#shared/dns";
+import {
+  bareDomain,
+  hasContact,
+  isDomainFile,
+  isObj,
+  isSubdomain,
+  supportsCfProxy,
+} from "#shared/dns";
+import {
+  appendToExistingSubdomain,
+  formatRecordLines,
+  formatYamlKey,
+  insertNewSubdomain,
+  normalizeRecordValue,
+  parseOptionalTtl,
+} from "../utils/dns-edit";
+import {
+  createBranchOnFork,
+  createUserOctokit,
+  formatCommitMessageWithBotCoAuthor,
+  getAppBotIdentity,
+  getUpstreamRepo,
+  githubErrorMessage,
+  requireUserFork,
+  requireUserSession,
+  syncForkWithUpstream,
+} from "../utils/github";
 
 interface SubmitBody {
   domain?: string;
@@ -11,14 +37,16 @@ interface SubmitBody {
     value?: unknown;
     contact?: string;
     mxPreference?: number;
+    proxied?: boolean;
   };
 }
 
-const RECORD_TYPES = new Set(["A", "AAAA", "CNAME", "ALIAS", "TXT", "MX"]);
+const TYPES = new Set(["A", "AAAA", "CNAME", "ALIAS", "TXT", "MX"]);
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<SubmitBody>(event);
-  const config = useRuntimeConfig(event);
+  const session = await requireUserSession(event);
+  const upstream = getUpstreamRepo(event);
 
   const domain = body.domain?.trim();
   const subdomain = body.record?.subdomain?.trim().toLowerCase();
@@ -26,162 +54,180 @@ export default defineEventHandler(async (event) => {
   const contact = body.record?.contact?.trim();
   const rawValue = body.record?.value;
   const mxPreference = Number(body.record?.mxPreference ?? 10);
+  const wantProxy = body.record?.proxied === true;
   const ttl = parseOptionalTtl(body.record?.ttl);
 
   if (!domain || !isDomainFile(domain)) {
     throw createError({ statusCode: 400, message: "Unknown or missing domain file" });
   }
-
   if (!subdomain || !type || rawValue === undefined || rawValue === null || rawValue === "") {
     throw createError({ statusCode: 400, message: "Missing required fields" });
   }
-
-  if (!/^[A-Za-z0-9_]([A-Za-z0-9._-]*[A-Za-z0-9_])?$/.test(subdomain)) {
+  if (!isSubdomain(subdomain)) {
     throw createError({
       statusCode: 400,
       message: "Invalid subdomain. Use letters, numbers, hyphens, underscores, and dots.",
     });
   }
-
-  if (!RECORD_TYPES.has(type)) {
+  if (!TYPES.has(type)) {
     throw createError({ statusCode: 400, message: `Unsupported record type: ${type}` });
   }
-
-  if (!contact || !hasContactInfo(contact)) {
+  if (!contact || !hasContact(contact)) {
     throw createError({
       statusCode: 400,
       message: "Contact must include an email and/or Slack member ID (e.g. U012AB345CD)",
     });
   }
 
-  const token =
-    (typeof config.githubToken === "string" && config.githubToken) ||
-    process.env.NUXT_GITHUB_TOKEN ||
-    process.env.GITHUB_TOKEN ||
-    "";
-  if (!token) {
+  const proxied = wantProxy && supportsCfProxy(domain, type);
+  if (wantProxy && !proxied) {
     throw createError({
-      statusCode: 500,
-      message: "Server is missing GITHUB_TOKEN / NUXT_GITHUB_TOKEN",
+      statusCode: 400,
+      message: "Cloudflare proxy is only available on hackclub.com for A, AAAA, and CNAME records",
     });
   }
 
-  const owner = String(
-    config.dnsGithubOwner ||
-      process.env.NUXT_DNS_GITHUB_OWNER ||
-      process.env.DNS_GITHUB_OWNER ||
-      "hackclub",
-  );
-  const repo = String(
-    config.dnsGithubRepo ||
-      process.env.NUXT_DNS_GITHUB_REPO ||
-      process.env.DNS_GITHUB_REPO ||
-      "dns",
-  );
-  const baseBranch = String(
-    config.dnsGithubBranch ||
-      process.env.NUXT_DNS_GITHUB_BRANCH ||
-      process.env.DNS_GITHUB_BRANCH ||
-      "main",
-  );
-
   const recordValue = normalizeRecordValue(type, rawValue, mxPreference);
-  const recordLines = formatRecordLines({ type, ttl, value: recordValue, mxPreference });
-
-  const octokit = new Octokit({ auth: token });
+  const recordLines = formatRecordLines({
+    type,
+    // Cloudflare auto-TTL when orange-clouded
+    ttl: proxied ? undefined : ttl,
+    value: recordValue,
+    mxPreference,
+    proxied,
+  });
+  const octokit = createUserOctokit(session.accessToken);
 
   try {
-    const { content: currentContent, sha: fileSha } = await readRepoFile(
+    const fork = await requireUserFork(octokit, session.login, upstream.owner, upstream.repo);
+    const { content, sha } = await readRepoFile(
       octokit,
-      owner,
-      repo,
+      upstream.owner,
+      upstream.repo,
       domain,
-      baseBranch,
+      upstream.branch,
     );
-    const parsed = YAML.parse(currentContent);
+    const parsed = YAML.parse(content);
+    if (!isObj(parsed)) throw new Error(`${domain} does not contain a YAML mapping`);
 
-    if (!isPlainObject(parsed)) {
-      throw new Error(`${domain} does not contain a YAML mapping`);
-    }
-
-    const existingKeys = Object.keys(parsed);
-    const isNewSubdomain = !Object.prototype.hasOwnProperty.call(parsed, subdomain);
-
-    const updated = isNewSubdomain
-      ? insertNewSubdomain(currentContent, existingKeys, subdomain, contact, recordLines)
-      : appendToExistingSubdomain(currentContent, subdomain, recordLines);
+    const isNew = !Object.prototype.hasOwnProperty.call(parsed, subdomain);
+    const updated = isNew
+      ? insertNewSubdomain(content, Object.keys(parsed), subdomain, contact, recordLines)
+      : appendToExistingSubdomain(content, subdomain, recordLines);
 
     const branch = `dns-editor-${subdomain.replace(/[^a-z0-9-]/gi, "-").slice(0, 40)}-${Date.now()}`;
-    const domainName = domain.replace(/\.yaml$/, "");
-    const fqdn = `${subdomain}.${domainName}`;
+    const fqdn = `${subdomain}.${bareDomain(domain)}`;
 
+    await syncForkWithUpstream(octokit, fork, fork.defaultBranch || upstream.branch);
     const { data: ref } = await octokit.git.getRef({
-      owner,
-      repo,
-      ref: `heads/${baseBranch}`,
+      owner: upstream.owner,
+      repo: upstream.repo,
+      ref: `heads/${upstream.branch}`,
     });
+    await createBranchOnFork(octokit, fork, branch, ref.object.sha, upstream.branch);
 
-    await octokit.git.createRef({
-      owner,
-      repo,
-      ref: `refs/heads/${branch}`,
-      sha: ref.object.sha,
-    });
+    const bot = await getAppBotIdentity(octokit, event);
+    const commitMessage = formatCommitMessageWithBotCoAuthor(
+      `Add DNS record: ${fqdn}`,
+      bot,
+      "Submitted with Hack Club DNS Editor.",
+    );
 
     await octokit.repos.createOrUpdateFileContents({
-      owner,
-      repo,
+      owner: fork.owner,
+      repo: fork.repo,
       path: domain,
-      message: `Add DNS record: ${fqdn}`,
+      message: commitMessage,
       content: Buffer.from(updated, "utf8").toString("base64"),
       branch,
-      sha: fileSha,
+      sha,
     });
 
     const preview = [`${formatYamlKey(subdomain)}: # ${contact}`, ...recordLines].join("\n");
+    const prTitle = `Add record for ${fqdn}`;
+    const appLink = bot
+      ? `[${bot.login}](${bot.htmlUrl})`
+      : "[Hack Club DNS Editor](https://github.com/apps/hack-club-dns-editor)";
+    const prBody = `## DNS Editor submission
 
-    const { data: pr } = await octokit.pulls.create({
-      owner,
-      repo,
-      title: `Add record for ${fqdn}`,
-      head: branch,
-      base: baseBranch,
-      body: `## DNS Editor submission
-
-Submitted via [dnseditor](https://github.com/3kh0/dnseditor).
+Opened by @${session.login} via ${appLink}.
 
 ### New record
 \`\`\`yaml
 ${preview}
 \`\`\`
 
-${isNewSubdomain ? `Contact: \`${contact}\`` : "Added to an existing subdomain entry."}
+${isNew ? `Contact: \`${contact}\`` : "Added to an existing subdomain entry."}
 
 Please review carefully before merging.
-`,
-    });
+`;
 
-    return {
-      success: true,
-      prUrl: pr.html_url,
+    const compareUrl =
+      `https://github.com/${upstream.owner}/${upstream.repo}/compare/` +
+      `${encodeURIComponent(upstream.branch)}...${encodeURIComponent(`${fork.owner}:${branch}`)}` +
+      `?quick_pull=1&title=${encodeURIComponent(prTitle)}&body=${encodeURIComponent(prBody)}`;
+
+    const forkPayload = { owner: fork.owner, repo: fork.repo, fullName: fork.fullName };
+    const basePayload = {
+      success: true as const,
       branch,
-      owner,
-      repo,
+      fork: forkPayload,
+      owner: upstream.owner,
+      repo: upstream.repo,
     };
+
+    try {
+      const { data: pr } = await octokit.pulls.create({
+        owner: upstream.owner,
+        repo: upstream.repo,
+        title: prTitle,
+        head: `${fork.owner}:${branch}`,
+        base: upstream.branch,
+        maintainer_can_modify: true,
+        body: prBody,
+      });
+
+      let viaApp: string | null = null;
+      try {
+        const { data: issue } = await octokit.issues.get({
+          owner: upstream.owner,
+          repo: upstream.repo,
+          issue_number: pr.number,
+        });
+        viaApp = issue.performed_via_github_app?.name ?? null;
+        if (!viaApp) {
+          console.warn(
+            "PR opened but performed_via_github_app is empty — token may not be a GitHub App user token",
+          );
+        }
+      } catch {
+        /* non-fatal */
+      }
+
+      return { ...basePayload, prUrl: pr.html_url, needsManualPr: false, viaApp };
+    } catch (prError) {
+      console.warn("pulls.create failed, returning compare URL:", githubErrorMessage(prError));
+      return {
+        ...basePayload,
+        prUrl: compareUrl,
+        needsManualPr: true,
+        viaApp: null,
+        message:
+          "Pushed your branch to your fork, but the API could not open the PR " +
+          "(so GitHub will not show the app badge). Open it in the browser to finish.",
+      };
+    }
   } catch (error) {
+    if (error && typeof error === "object" && "statusCode" in error) throw error;
     console.error("GitHub API error:", error);
     throw createError({
       statusCode: 500,
-      message: `Failed to create pull request: ${errorMessage(error)}`,
-      data: { detail: errorMessage(error) },
+      message: `Failed to create pull request: ${githubErrorMessage(error)}`,
+      data: { detail: githubErrorMessage(error) },
     });
   }
 });
 
-/**
- * Read a text file from GitHub. Uses the Contents API when it returns body bytes,
- * otherwise falls back to the Git blob API (needed for larger files / sparse responses).
- */
 async function readRepoFile(
   octokit: Octokit,
   owner: string,
@@ -190,9 +236,8 @@ async function readRepoFile(
   ref: string,
 ) {
   const { data } = await octokit.repos.getContent({ owner, repo, path, ref });
-
   if (!data || typeof data !== "object" || Array.isArray(data)) {
-    throw new Error(`${path} is not a file (got ${describeData(data)})`);
+    throw new Error(`${path} is not a file (got ${describe(data)})`);
   }
 
   const file = data as {
@@ -200,245 +245,24 @@ async function readRepoFile(
     sha?: string;
     content?: string;
     encoding?: string;
-    size?: number;
   };
 
   if (file.type !== "file" || !file.sha) {
     throw new Error(`${path} is not a readable file (type=${file.type ?? "unknown"})`);
   }
 
+  const decode = (content: string, encoding?: string) =>
+    Buffer.from(content.replace(/\n/g, ""), encoding === "base64" ? "base64" : "utf8").toString(
+      "utf8",
+    );
+
   if (typeof file.content === "string" && file.content.length > 0) {
-    const encoding = file.encoding === "base64" ? "base64" : "utf8";
-    return {
-      sha: file.sha,
-      content: Buffer.from(file.content.replace(/\n/g, ""), encoding).toString("utf8"),
-    };
+    return { sha: file.sha, content: decode(file.content, file.encoding) };
   }
 
-  const { data: blob } = await octokit.git.getBlob({
-    owner,
-    repo,
-    file_sha: file.sha,
-  });
-
-  const encoding = blob.encoding === "base64" ? "base64" : "utf8";
-  return {
-    sha: file.sha,
-    content: Buffer.from(blob.content.replace(/\n/g, ""), encoding).toString("utf8"),
-  };
+  const { data: blob } = await octokit.git.getBlob({ owner, repo, file_sha: file.sha });
+  return { sha: file.sha, content: decode(blob.content, blob.encoding) };
 }
 
-function describeData(data: unknown) {
-  if (data === null) return "null";
-  if (Array.isArray(data)) return "directory listing";
-  return typeof data;
-}
-
-function hasContactInfo(value: string) {
-  return (
-    /\b[UW][A-Z0-9]{8,12}\b/.test(value) ||
-    /[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+/.test(value)
-  );
-}
-
-function normalizeRecordValue(type: string, rawValue: unknown, mxPreference: number) {
-  if (
-    typeof rawValue !== "string" &&
-    typeof rawValue !== "number" &&
-    typeof rawValue !== "boolean"
-  ) {
-    throw createError({ statusCode: 400, message: "Record value must be a string" });
-  }
-
-  let value = String(rawValue).trim();
-  if (!value) {
-    throw createError({ statusCode: 400, message: "Record value cannot be empty" });
-  }
-
-  if (type === "MX" && (!Number.isFinite(mxPreference) || mxPreference < 0)) {
-    throw createError({ statusCode: 400, message: "MX preference must be a non-negative number" });
-  }
-
-  if ((type === "CNAME" || type === "ALIAS" || type === "MX") && !value.endsWith(".")) {
-    value = `${value}.`;
-  }
-
-  return value;
-}
-
-function parseOptionalTtl(raw: unknown): number | undefined {
-  if (raw === undefined || raw === null || raw === "") return undefined;
-  const ttl = Number(raw);
-  if (!Number.isFinite(ttl) || ttl <= 0) {
-    throw createError({ statusCode: 400, message: "TTL must be a positive number when set" });
-  }
-  return ttl;
-}
-
-function formatRecordLines(input: {
-  type: string;
-  ttl?: number;
-  value: string;
-  mxPreference: number;
-}) {
-  const head =
-    input.ttl !== undefined
-      ? [`- ttl: ${input.ttl}`, `  type: ${input.type}`]
-      : [`- type: ${input.type}`];
-
-  if (input.type === "MX") {
-    return [
-      ...head,
-      `  values:`,
-      `  - exchange: ${input.value}`,
-      `    preference: ${input.mxPreference}`,
-    ];
-  }
-
-  const value =
-    input.type === "TXT" && needsYamlQuotes(input.value)
-      ? JSON.stringify(input.value)
-      : input.value;
-
-  return [...head, `  value: ${value}`];
-}
-
-function needsYamlQuotes(value: string) {
-  return /[:#{}[\],&*!|>'"%@`]/.test(value) || value.includes(" ") || value === "";
-}
-
-function formatYamlKey(key: string) {
-  if (key === "") return "''";
-  if (/^\d/.test(key) || /[:#{}[\],&*!|>'"%@`\s]/.test(key)) {
-    return `'${key.replace(/'/g, "''")}'`;
-  }
-  return key;
-}
-
-function insertNewSubdomain(
-  content: string,
-  existingKeys: string[],
-  subdomain: string,
-  contact: string,
-  recordLines: string[],
-) {
-  const lines = splitLines(content);
-  const topLevel = findTopLevelKeys(lines);
-  const sortedKeys = [...existingKeys].sort(compareDnsKeys);
-  const nextKey = sortedKeys.find((key) => compareDnsKeys(key, subdomain) > 0);
-
-  const block = [`${formatYamlKey(subdomain)}: # ${contact}`, ...recordLines];
-
-  if (!nextKey) {
-    const trimmedEnd = [...lines];
-    while (trimmedEnd.length && lastLine(trimmedEnd).trim() === "") {
-      trimmedEnd.pop();
-    }
-    return joinLines([...trimmedEnd, ...block]);
-  }
-
-  const nextEntry = topLevel.find((entry) => entry.key === nextKey);
-  if (!nextEntry) {
-    throw new Error(`Could not locate insertion point before key "${nextKey}"`);
-  }
-
-  return joinLines([
-    ...lines.slice(0, nextEntry.lineIndex),
-    ...block,
-    ...lines.slice(nextEntry.lineIndex),
-  ]);
-}
-
-function appendToExistingSubdomain(content: string, subdomain: string, recordLines: string[]) {
-  const lines = splitLines(content);
-  const topLevel = findTopLevelKeys(lines);
-  const entryIndex = topLevel.findIndex((entry) => entry.key === subdomain);
-
-  if (entryIndex === -1) {
-    throw new Error(`Subdomain "${subdomain}" not found in file for append`);
-  }
-
-  const entry = topLevel[entryIndex];
-  if (!entry) {
-    throw new Error(`Subdomain "${subdomain}" not found in file for append`);
-  }
-
-  const nextEntry = topLevel[entryIndex + 1];
-  const endLine = nextEntry ? nextEntry.lineIndex : lines.length;
-
-  let insertAt = endLine;
-  while (insertAt > entry.lineIndex + 1 && (lines[insertAt - 1] ?? "").trim() === "") {
-    insertAt -= 1;
-  }
-
-  return joinLines([...lines.slice(0, insertAt), ...recordLines, ...lines.slice(insertAt)]);
-}
-
-function lastLine(lines: string[]) {
-  return lines[lines.length - 1] ?? "";
-}
-
-interface TopLevelKey {
-  key: string;
-  lineIndex: number;
-}
-
-function findTopLevelKeys(lines: string[]): TopLevelKey[] {
-  const keys: TopLevelKey[] = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (!line || line[0] === " " || line[0] === "\t" || line.trimStart().startsWith("#")) {
-      continue;
-    }
-
-    if (line.trimStart().startsWith("-")) continue;
-
-    const match = line.match(/^('[^']*'|"[^"]*"|[^:#\s][^:#]*?)\s*:/);
-    const rawKey = match?.[1];
-    if (!rawKey) continue;
-
-    keys.push({ key: unquoteYamlKey(rawKey.trim()), lineIndex: i });
-  }
-
-  return keys;
-}
-
-function unquoteYamlKey(raw: string) {
-  if ((raw.startsWith("'") && raw.endsWith("'")) || (raw.startsWith('"') && raw.endsWith('"'))) {
-    return raw.slice(1, -1);
-  }
-  return raw;
-}
-
-function sortKey(key: string) {
-  if (!key) return "";
-  return key.split(".").reverse().join(".");
-}
-
-function compareDnsKeys(a: string, b: string) {
-  return sortKey(a).localeCompare(sortKey(b), undefined, {
-    numeric: true,
-    sensitivity: "base",
-  });
-}
-
-function splitLines(content: string) {
-  return content.split(/\r?\n/);
-}
-
-function joinLines(lines: string[]) {
-  const body = lines.join("\n");
-  return body.endsWith("\n") ? body : `${body}\n`;
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function errorMessage(error: unknown) {
-  if (error && typeof error === "object" && "message" in error) {
-    return String((error as { message: unknown }).message);
-  }
-  return error instanceof Error ? error.message : "Unknown GitHub API error";
-}
+const describe = (data: unknown) =>
+  data === null ? "null" : Array.isArray(data) ? "directory listing" : typeof data;

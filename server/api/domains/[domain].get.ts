@@ -1,17 +1,11 @@
 import YAML from "yaml";
-import { isDomainFile } from "#shared/dns";
+import { isDomainFile, isObj } from "#shared/dns";
 import type { DnsMxValue, DnsRecord, DnsRecordGroup, DnsValue } from "#shared/types/dns";
-
-type UnknownRecord = Record<string, unknown>;
 
 export default defineEventHandler(async (event): Promise<DnsRecordGroup[]> => {
   const domain = getRouterParam(event, "domain");
-
   if (!domain || !isDomainFile(domain)) {
-    throw createError({
-      statusCode: 404,
-      statusMessage: "Unknown domain",
-    });
+    throw createError({ statusCode: 404, statusMessage: "Unknown domain" });
   }
 
   try {
@@ -19,69 +13,54 @@ export default defineEventHandler(async (event): Promise<DnsRecordGroup[]> => {
       `https://raw.githubusercontent.com/hackclub/dns/refs/heads/main/${domain}`,
       { responseType: "text" },
     );
-    const document = YAML.parse(source);
-
-    if (!isObject(document)) {
-      throw new TypeError("The DNS file does not contain a YAML object");
-    }
+    const doc = YAML.parse(source);
+    if (!isObj(doc)) throw new TypeError("The DNS file does not contain a YAML object");
 
     setResponseHeader(event, "Cache-Control", "public, max-age=60, s-maxage=300");
-
-    return Object.entries(document).map(([subdomain, entry]) => ({
+    return Object.entries(doc).map(([subdomain, entry]) => ({
       subdomain,
-      records: normalizeRecordList(entry),
+      records: normalizeList(entry),
     }));
-  } catch (error) {
-    console.error(`Failed to load ${domain}`, error);
+  } catch (e) {
+    console.error(`Failed to load ${domain}`, e);
     throw createError({
       statusCode: 502,
       statusMessage: `Failed to load DNS records for ${domain}`,
-      cause: error,
+      cause: e,
     });
   }
 });
 
-function normalizeRecordList(entry: unknown): DnsRecord[] {
-  const entries = Array.isArray(entry) ? entry : [entry];
-  return entries.filter(isObject).map(normalizeRecord);
-}
+const normalizeList = (entry: unknown): DnsRecord[] =>
+  (Array.isArray(entry) ? entry : [entry]).filter(isObj).map(normalizeRecord);
 
-function normalizeRecord(record: UnknownRecord): DnsRecord {
-  const source = record.values ?? record.value;
-  const values = (Array.isArray(source) ? source : source == null ? [] : [source])
+function normalizeRecord(r: Record<string, unknown>): DnsRecord {
+  const src = r.values ?? r.value;
+  const values = (Array.isArray(src) ? src : src == null ? [] : [src])
     .map(normalizeValue)
-    .filter((value): value is DnsValue => value !== undefined);
+    .filter((v): v is DnsValue => v !== undefined);
 
   return {
-    type: typeof record.type === "string" ? record.type : "UNKNOWN",
-    ...(typeof record.ttl === "number" ? { ttl: record.ttl } : {}),
+    type: typeof r.type === "string" ? r.type : "UNKNOWN",
+    ...(typeof r.ttl === "number" ? { ttl: r.ttl } : {}),
     values,
   };
 }
 
-function normalizeValue(value: unknown): DnsValue | undefined {
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-    return value;
-  }
+function normalizeValue(v: unknown): DnsValue | undefined {
+  if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return v;
+  if (!isObj(v)) return undefined;
 
-  if (isObject(value)) {
-    const normalized: DnsMxValue = {};
-
-    for (const [key, item] of Object.entries(value)) {
-      if (
-        item === null ||
-        typeof item === "string" ||
-        typeof item === "number" ||
-        typeof item === "boolean"
-      ) {
-        normalized[key] = item;
-      }
+  const out: DnsMxValue = {};
+  for (const [k, item] of Object.entries(v)) {
+    if (
+      item === null ||
+      typeof item === "string" ||
+      typeof item === "number" ||
+      typeof item === "boolean"
+    ) {
+      out[k] = item;
     }
-
-    return normalized;
   }
-}
-
-function isObject(value: unknown): value is UnknownRecord {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return out;
 }
