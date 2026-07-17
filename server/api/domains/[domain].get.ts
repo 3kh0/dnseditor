@@ -40,11 +40,22 @@ function normalizeRecord(r: Record<string, unknown>): DnsRecord {
     .map(normalizeValue)
     .filter((v): v is DnsValue => v !== undefined);
 
+  const proxied = isProxied(r);
+
   return {
     type: typeof r.type === "string" ? r.type : "UNKNOWN",
     ...(typeof r.ttl === "number" ? { ttl: r.ttl } : {}),
+    ...(proxied ? { proxied: true } : {}),
     values,
   };
+}
+
+function isProxied(r: Record<string, unknown>): boolean {
+  const oct = r.octodns;
+  if (!isObj(oct)) return false;
+  const cf = oct.cloudflare;
+  if (!isObj(cf)) return false;
+  return cf.proxied === true;
 }
 
 function normalizeValue(v: unknown): DnsValue | undefined {

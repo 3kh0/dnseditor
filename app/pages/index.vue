@@ -21,6 +21,32 @@ const searchQuery = ref("");
 const showEditModal = ref(false);
 const authError = ref<string | null>(null);
 
+export interface EditingRecord {
+  subdomain: string;
+  type: string;
+  value: string;
+  ttl?: number;
+  mxPreference?: number;
+  proxied?: boolean;
+}
+
+const editingRecord = ref<EditingRecord | null>(null);
+
+function openAdd() {
+  editingRecord.value = null;
+  showEditModal.value = true;
+}
+
+function openEdit(record: EditingRecord) {
+  editingRecord.value = record;
+  showEditModal.value = true;
+}
+
+function closeModal() {
+  showEditModal.value = false;
+  editingRecord.value = null;
+}
+
 onMounted(() => {
   const err = typeof route.query.authError === "string" ? route.query.authError : null;
   if (err) authError.value = err;
@@ -30,7 +56,7 @@ onMounted(() => {
     if (d && (DOMAIN_FILES as readonly string[]).includes(d)) {
       selectedDomain.value = d as DomainFile;
     }
-    showEditModal.value = true;
+    openAdd();
   }
 
   if (route.query.authError || route.query.openAdd) {
@@ -88,8 +114,8 @@ const matched = computed(() => {
           <div class="min-w-0">
             <h1 class="truncate text-2xl font-semibold text-snow">DNS records for {{ bare }}</h1>
             <p class="mt-1 text-sm text-muted">
-              Browse records for this domain and open pull requests to add subdomains from your
-              fork.
+              Browse records for this domain and open pull requests to add or edit subdomains from
+              your fork.
             </p>
           </div>
           <UserMenu class="shrink-0 self-start" />
@@ -128,7 +154,7 @@ const matched = computed(() => {
           <button
             type="button"
             class="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-primary/85"
-            @click="showEditModal = true"
+            @click="openAdd"
           >
             <Icon name="material-symbols:add" size="1rem" />
             Add record
@@ -173,6 +199,7 @@ const matched = computed(() => {
             :groups="matched"
             :domain="selectedDomain"
             :search-query="searchQuery"
+            @edit="openEdit"
           />
         </template>
       </div>
@@ -181,7 +208,8 @@ const matched = computed(() => {
     <EditRecordModal
       :show="showEditModal"
       :domain="selectedDomain"
-      @close="showEditModal = false"
+      :editing="editingRecord"
+      @close="closeModal"
     />
   </div>
 </template>

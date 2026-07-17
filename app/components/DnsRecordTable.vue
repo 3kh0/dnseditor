@@ -8,12 +8,26 @@ const props = defineProps<{
   searchQuery?: string;
 }>();
 
+const emit = defineEmits<{
+  edit: [payload: EditPayload];
+}>();
+
+export interface EditPayload {
+  subdomain: string;
+  type: string;
+  value: string;
+  ttl?: number;
+  mxPreference?: number;
+  proxied?: boolean;
+}
+
 interface Row {
   siteUrl: string | null;
   subdomain: string;
   ttl?: number;
   type: string;
   value: DnsValue;
+  proxied?: boolean;
 }
 
 const bare = computed(() => bareDomain(props.domain));
@@ -27,6 +41,7 @@ const rows = computed<Row[]>(() =>
         ttl: r.ttl,
         type: r.type,
         value,
+        proxied: r.proxied,
       })),
     ),
   ),
@@ -56,6 +71,28 @@ function siteUrl(sub: string, type: string, value: DnsValue) {
   }
   const prefix = !sub || sub === "@" ? "" : `${sub}.`;
   return `https://${prefix}${bare.value}`;
+}
+
+function onEdit(row: Row) {
+  if (row.type === "MX" && isMx(row.value)) {
+    emit("edit", {
+      subdomain: row.subdomain,
+      type: row.type,
+      value: row.value.exchange ? String(row.value.exchange) : "",
+      ttl: row.ttl,
+      mxPreference: Number(row.value.preference ?? row.value.priority ?? 10),
+      proxied: row.proxied,
+    });
+    return;
+  }
+
+  emit("edit", {
+    subdomain: row.subdomain,
+    type: row.type,
+    value: row.value === "" ? "" : fmtDnsValue(row.value),
+    ttl: row.ttl,
+    proxied: row.proxied,
+  });
 }
 </script>
 
@@ -129,17 +166,28 @@ function siteUrl(sub: string, type: string, value: DnsValue) {
             </td>
             <td class="px-4 py-2.5 whitespace-nowrap text-muted">{{ row.ttl ?? "Auto" }}</td>
             <td class="px-4 py-2.5 text-right">
-              <a
-                v-if="row.siteUrl"
-                :href="row.siteUrl"
-                target="_blank"
-                rel="noreferrer"
-                class="inline-flex items-center gap-1 text-xs text-muted transition-colors hover:text-primary"
-                :title="`Open ${row.siteUrl}`"
-              >
-                <Icon name="material-symbols:open-in-new" size="0.875rem" />
-                Open
-              </a>
+              <div class="inline-flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  class="inline-flex cursor-pointer items-center gap-1 text-xs text-muted transition-colors hover:text-primary"
+                  title="Edit this record"
+                  @click="onEdit(row)"
+                >
+                  <Icon name="material-symbols:edit-outline" size="0.875rem" />
+                  Edit
+                </button>
+                <a
+                  v-if="row.siteUrl"
+                  :href="row.siteUrl"
+                  target="_blank"
+                  rel="noreferrer"
+                  class="inline-flex items-center gap-1 text-xs text-muted transition-colors hover:text-primary"
+                  :title="`Open ${row.siteUrl}`"
+                >
+                  <Icon name="material-symbols:open-in-new" size="0.875rem" />
+                  Open
+                </a>
+              </div>
             </td>
           </tr>
         </tbody>

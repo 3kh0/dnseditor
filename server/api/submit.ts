@@ -15,6 +15,7 @@ import {
   insertNewSubdomain,
   normalizeRecordValue,
   parseOptionalTtl,
+  replaceExistingRecord,
 } from "../utils/dns-edit";
 import {
   createBranchOnFork,
@@ -30,6 +31,7 @@ import {
 
 interface SubmitBody {
   domain?: string;
+  action?: "add" | "edit";
   record?: {
     subdomain?: string;
     ttl?: number;
@@ -38,6 +40,11 @@ interface SubmitBody {
     contact?: string;
     mxPreference?: number;
     proxied?: boolean;
+  };
+  original?: {
+    type?: string;
+    value?: unknown;
+    mxPreference?: number;
   };
 }
 
@@ -48,6 +55,7 @@ export default defineEventHandler(async (event) => {
   const session = await requireUserSession(event);
   const upstream = getUpstreamRepo(event);
 
+  const action = body.action === "edit" ? "edit" : "add";
   const domain = body.domain?.trim();
   const subdomain = body.record?.subdomain?.trim().toLowerCase();
   const type = body.record?.type?.trim().toUpperCase();
@@ -77,6 +85,26 @@ export default defineEventHandler(async (event) => {
       statusCode: 400,
       message: "Contact must include an email and/or Slack member ID (e.g. U012AB345CD)",
     });
+  }
+
+  const origType = body.original?.type?.trim().toUpperCase();
+  const origValue = body.original?.value;
+  const origMxPreference =
+    body.original?.mxPreference !== undefined ? Number(body.original.mxPreference) : undefined;
+
+  if (action === "edit") {
+    if (!origType || origValue === undefined || origValue === null || origValue === "") {
+      throw createError({
+        statusCode: 400,
+        message: "Edit requires original.type and original.value to identify the record",
+      });
+    }
+    if (!TYPES.has(origType)) {
+      throw createError({
+        statusCode: 400,
+        message: `Unsupported original record type: ${origType}`,
+      });
+    }
   }
 
   const proxied = wantProxy && supportsCfProxy(domain, type);
@@ -110,13 +138,50 @@ export default defineEventHandler(async (event) => {
     const parsed = YAML.parse(content);
     if (!isObj(parsed)) throw new Error(`${domain} does not contain a YAML mapping`);
 
-    const isNew = !Object.prototype.hasOwnProperty.call(parsed, subdomain);
-    const updated = isNew
-      ? insertNewSubdomain(content, Object.keys(parsed), subdomain, contact, recordLines)
-      : appendToExistingSubdomain(content, subdomain, recordLines);
+    let updated: string;
+    let isNew = false;
+
+    if (action === "edit") {
+      if (!Object.prototype.hasOwnProperty.call(parsed, subdomain)) {
+        throw createError({
+          statusCode: 404,
+          message: `Subdomain "${subdomain}" not found in ${domain}`,
+        });
+      }
+      const matchValue = normalizeRecordValue(
+        origType!,
+        origValue,
+        origMxPreference ?? (origType === "MX" ? 10 : 0),
+      );
+      updated = replaceExistingRecord(
+        content,
+        subdomain,
+        {
+          type: origType!,
+          value: matchValue,
+          ...(origType === "MX" && origMxPreference !== undefined
+            ? { mxPreference: origMxPreference }
+            : {}),
+        },
+        contact,
+        {
+          type,
+          ttl: proxied ? undefined : ttl,
+          value: recordValue,
+          mxPreference,
+          proxied,
+        },
+      );
+    } else {
+      isNew = !Object.prototype.hasOwnProperty.call(parsed, subdomain);
+      updated = isNew
+        ? insertNewSubdomain(content, Object.keys(parsed), subdomain, contact, recordLines)
+        : appendToExistingSubdomain(content, subdomain, recordLines);
+    }
 
     const branch = `dns-editor-${subdomain.replace(/[^a-z0-9-]/gi, "-").slice(0, 40)}-${Date.now()}`;
     const fqdn = `${subdomain}.${bareDomain(domain)}`;
+    const verb = action === "edit" ? "Update" : "Add";
 
     await syncForkWithUpstream(octokit, fork, fork.defaultBranch || upstream.branch);
     const { data: ref } = await octokit.git.getRef({
@@ -128,7 +193,7 @@ export default defineEventHandler(async (event) => {
 
     const bot = await getAppBotIdentity(octokit, event);
     const commitMessage = formatCommitMessageWithBotCoAuthor(
-      `Add DNS record: ${fqdn}`,
+      `${verb} DNS record: ${fqdn}`,
       bot,
       "Submitted with Hack Club DNS Editor.",
     );
@@ -144,11 +209,39 @@ export default defineEventHandler(async (event) => {
     });
 
     const preview = [`${formatYamlKey(subdomain)}: # ${contact}`, ...recordLines].join("\n");
-    const prTitle = `Add record for ${fqdn}`;
+    const prTitle = `${verb} record for ${fqdn}`;
     const appLink = bot
       ? `[${bot.login}](${bot.htmlUrl})`
       : "[Hack Club DNS Editor](https://github.com/apps/hack-club-dns-editor)";
-    const prBody = `## DNS Editor submission
+
+    const originalPreview =
+      action === "edit"
+        ? `${origType} ${String(origValue)}${
+            origType === "MX" && origMxPreference !== undefined
+              ? ` (preference ${origMxPreference})`
+              : ""
+          }`
+        : "";
+
+    const prBody =
+      action === "edit"
+        ? `## DNS Editor submission
+
+Opened by @${session.login} via ${appLink}.
+
+### Edit
+Replacing existing \`${originalPreview}\` under \`${fqdn}\`.
+
+### Updated record
+\`\`\`yaml
+${preview}
+\`\`\`
+
+Contact: \`${contact}\`
+
+Please review carefully before merging.
+`
+        : `## DNS Editor submission
 
 Opened by @${session.login} via ${appLink}.
 

@@ -11,6 +11,7 @@ export interface DnsRecord {
   ttl?: number;
   type: string;
   values: DnsValue[];
+  proxied?: boolean;
 }
 
 export interface DnsRecordGroup {

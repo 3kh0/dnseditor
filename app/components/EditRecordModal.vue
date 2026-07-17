@@ -1,7 +1,20 @@
 <script setup lang="ts">
 import { bareDomain, hasContact, isSubdomain, supportsCfProxy } from "#shared/dns";
 
-const props = defineProps<{ show: boolean; domain: string }>();
+export interface EditingRecord {
+  subdomain: string;
+  type: string;
+  value: string;
+  ttl?: number;
+  mxPreference?: number;
+  proxied?: boolean;
+}
+
+const props = defineProps<{
+  show: boolean;
+  domain: string;
+  editing?: EditingRecord | null;
+}>();
 const emit = defineEmits<{ close: [] }>();
 
 const {
@@ -18,7 +31,7 @@ const {
 
 const CONTACT_KEY = "dnseditor:contact";
 
-const mode = ref<"menu" | "add" | null>(null);
+const mode = ref<"menu" | "add" | "edit" | null>(null);
 const error = ref<string | null>(null);
 const sending = ref(false);
 const showSuccess = ref(false);
@@ -29,6 +42,8 @@ const showAdvanced = ref(false);
 const refreshingFork = ref(false);
 const statusMessage = ref<string | null>(null);
 
+const original = ref<EditingRecord | null>(null);
+
 const form = ref({
   subdomain: "",
   type: "CNAME",
@@ -38,6 +53,8 @@ const form = ref({
   mxPreference: 10,
   proxied: false,
 });
+
+const isEdit = computed(() => mode.value === "edit" && !!original.value);
 
 const recordTypes = ["A", "AAAA", "CNAME", "ALIAS", "TXT", "MX"] as const;
 
@@ -105,8 +122,29 @@ const isValid = computed(() => {
   if (!s || !v || !c) return false;
   if (ttl !== "" && (!(Number(ttl) > 0) || !Number.isFinite(Number(ttl)))) return false;
   if (!isSubdomain(s) || !hasContact(c)) return false;
-  if (type === "MX" && !(Number(mxPreference) > 0)) return false;
+  if (type === "MX") {
+    const pref = Number(mxPreference);
+    if (!Number.isFinite(pref) || pref < 0) return false;
+  }
+  if (isEdit.value && !hasChanges.value) return false;
   return true;
+});
+
+/** True when the form differs from the original record being edited. */
+const hasChanges = computed(() => {
+  if (!original.value) return true;
+  const o = original.value;
+  const f = form.value;
+  if (f.type !== o.type) return true;
+  if (f.value.trim() !== o.value.trim()) return true;
+  if (Boolean(f.proxied) !== Boolean(o.proxied)) return true;
+  const formTtl = f.ttl === "" ? undefined : Number(f.ttl);
+  const origTtl = o.ttl;
+  if (formTtl !== origTtl) return true;
+  if (f.type === "MX" || o.type === "MX") {
+    if (Number(f.mxPreference) !== Number(o.mxPreference ?? 10)) return true;
+  }
+  return false;
 });
 
 const needsManualFork = computed(() => authenticated.value && !authPending.value && !fork.value);
@@ -119,15 +157,24 @@ const defaultManualForkUrl = computed(
   () => manualForkUrl.value || `https://github.com/${upstreamLabel.value}/fork`,
 );
 
+const modalTitle = computed(() => (isEdit.value ? "Edit record" : "Add record"));
+
 watch(
   () => props.show,
   async (open) => {
     if (!open) return;
-    mode.value = "menu";
     error.value = null;
     statusMessage.value = null;
     showAdvanced.value = false;
-    if (!form.value.contact.trim()) form.value.contact = loadContact();
+
+    if (props.editing) {
+      applyEditing(props.editing);
+      mode.value = "edit";
+    } else {
+      original.value = null;
+      mode.value = "menu";
+      if (!form.value.contact.trim()) form.value.contact = loadContact();
+    }
     await refresh();
   },
 );
@@ -160,7 +207,23 @@ function resetForm() {
     mxPreference: 10,
     proxied: false,
   };
+  original.value = null;
   showAdvanced.value = false;
+  statusMessage.value = null;
+}
+
+function applyEditing(rec: EditingRecord) {
+  original.value = { ...rec };
+  form.value = {
+    subdomain: rec.subdomain,
+    type: rec.type,
+    value: rec.value,
+    ttl: rec.ttl ?? "",
+    contact: loadContact(),
+    mxPreference: rec.mxPreference ?? 10,
+    proxied: rec.proxied === true,
+  };
+  showAdvanced.value = rec.ttl !== undefined;
   statusMessage.value = null;
 }
 
@@ -183,12 +246,21 @@ function close() {
 }
 
 function back() {
+  if (isEdit.value) {
+    close();
+    return;
+  }
   mode.value = "menu";
   error.value = null;
   statusMessage.value = null;
 }
 
-const startLogin = () => login(`/?openAdd=1&domain=${encodeURIComponent(props.domain)}`);
+const startLogin = () => {
+  const returnTo = isEdit.value
+    ? `/?domain=${encodeURIComponent(props.domain)}`
+    : `/?openAdd=1&domain=${encodeURIComponent(props.domain)}`;
+  login(returnTo);
+};
 
 async function refreshAfterManualFork() {
   error.value = null;
@@ -215,6 +287,32 @@ async function submit() {
     sending.value = true;
     statusMessage.value = `Opening PR via ${fork.value!.fullName}…`;
 
+    const body: Record<string, unknown> = {
+      domain: props.domain,
+      action: isEdit.value ? "edit" : "add",
+      record: {
+        subdomain: form.value.subdomain.trim().toLowerCase(),
+        type: form.value.type,
+        value: form.value.value.trim(),
+        contact: form.value.contact.trim(),
+        ...(form.value.ttl !== "" && !(form.value.proxied && canProxy.value)
+          ? { ttl: Number(form.value.ttl) }
+          : {}),
+        ...(form.value.type === "MX" ? { mxPreference: Number(form.value.mxPreference) } : {}),
+        ...(form.value.proxied && canProxy.value ? { proxied: true } : {}),
+      },
+    };
+
+    if (isEdit.value && original.value) {
+      body.original = {
+        type: original.value.type,
+        value: original.value.value,
+        ...(original.value.type === "MX"
+          ? { mxPreference: Number(original.value.mxPreference ?? 10) }
+          : {}),
+      };
+    }
+
     const response = await $fetch<{
       success: boolean;
       prUrl: string;
@@ -222,20 +320,7 @@ async function submit() {
       viaApp?: string | null;
     }>("/api/submit", {
       method: "POST",
-      body: {
-        domain: props.domain,
-        record: {
-          subdomain: form.value.subdomain.trim().toLowerCase(),
-          type: form.value.type,
-          value: form.value.value.trim(),
-          contact: form.value.contact.trim(),
-          ...(form.value.ttl !== "" && !(form.value.proxied && canProxy.value)
-            ? { ttl: Number(form.value.ttl) }
-            : {}),
-          ...(form.value.type === "MX" ? { mxPreference: Number(form.value.mxPreference) } : {}),
-          ...(form.value.proxied && canProxy.value ? { proxied: true } : {}),
-        },
-      },
+      body,
     });
 
     prUrl.value = response.prUrl;
@@ -322,7 +407,7 @@ const valuePlaceholder = computed(() => {
         </div>
 
         <div class="mb-5 flex items-center justify-between">
-          <h2 id="edit-record-title" class="text-2xl font-semibold text-snow">Add record</h2>
+          <h2 id="edit-record-title" class="text-2xl font-semibold text-snow">{{ modalTitle }}</h2>
           <button
             type="button"
             class="flex size-9 items-center justify-center rounded-lg border border-border text-muted transition-colors hover:border-muted hover:text-snow"
@@ -359,12 +444,18 @@ const valuePlaceholder = computed(() => {
             <code class="text-snow">{{ upstreamLabel }}</code>
             from a branch on
             <strong class="font-medium text-snow">your fork</strong>
-            so we don't add temporary branches on the main repo. Editing existing records is not
-            supported yet.
+            so we don't add temporary branches on the main repo. To change an existing record, use
+            the
+            <strong class="font-medium text-snow">Edit</strong>
+            button on a row in the table.
           </p>
         </div>
 
-        <form v-else-if="mode === 'add'" class="space-y-5" @submit.prevent="submit">
+        <form
+          v-else-if="mode === 'add' || mode === 'edit'"
+          class="space-y-5"
+          @submit.prevent="submit"
+        >
           <div class="rounded-lg border border-border bg-darker p-3 text-sm">
             <template v-if="authPending">
               <p class="text-muted">Checking GitHub sign-in…</p>
@@ -458,6 +549,7 @@ const valuePlaceholder = computed(() => {
           </div>
 
           <p class="text-lg text-snow">
+            <template v-if="isEdit">Update </template>
             <span :class="previewName ? 'text-snow' : 'text-muted'">{{
               previewName ?? "[name]"
             }}</span>
@@ -488,9 +580,14 @@ const valuePlaceholder = computed(() => {
                 type="text"
                 autocomplete="off"
                 spellcheck="false"
-                class="w-full rounded-lg border border-border bg-darker px-3 py-2 text-sm text-snow outline-none placeholder:text-muted/70 focus:border-primary"
+                class="w-full rounded-lg border border-border bg-darker px-3 py-2 text-sm text-snow outline-none placeholder:text-muted/70 focus:border-primary disabled:cursor-not-allowed disabled:opacity-60"
                 :placeholder="`coolsubdomain (becomes coolsubdomain.${bare})`"
+                :disabled="isEdit"
+                :title="isEdit ? 'Subdomain cannot be changed when editing' : undefined"
               />
+              <p v-if="isEdit" class="mt-1 text-xs text-muted">
+                Name is fixed for edits. Add a new record if you need a different subdomain.
+              </p>
             </div>
           </div>
 
@@ -701,9 +798,13 @@ const valuePlaceholder = computed(() => {
               :disabled="sending || refreshingFork"
               @click="back"
             >
-              Back
+              {{ isEdit ? "Cancel" : "Back" }}
             </button>
           </div>
+
+          <p v-if="isEdit && !hasChanges" class="text-xs text-muted">
+            Change at least one field to open a pull request.
+          </p>
 
           <div
             v-if="error"
