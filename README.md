@@ -11,3 +11,7 @@ bun install
 cp .env.example .env   # then fill in GITHUB_TOKEN
 bun run dev
 ```
+
+## Live demo
+
+Use it at [dns.hackclub.com](https://dns.hackclub.com)
