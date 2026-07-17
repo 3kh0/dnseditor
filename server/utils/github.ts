@@ -73,7 +73,7 @@ export function getGitHubAppConfig(event: H3Event): GitHubAppConfig {
 export function getInstallUrl(event: H3Event): string | null {
   try {
     const { appSlug } = getGitHubAppConfig(event);
-    return appSlug ? `https://github.com/apps/${appSlug}/installations/new` : null;
+    return appSlug ? `https://github.com/apps/${appSlug}/installations/new?state=dns-editor` : null;
   } catch {
     return null;
   }

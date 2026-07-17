@@ -36,6 +36,9 @@ const modalPanel = ref<HTMLElement | null>(null);
 const error = ref<string | null>(null);
 const submissionErrorCode = ref<string | null>(null);
 const submissionInstallUrl = ref<string | null>(null);
+const appInstallNotice = ref<string | null>(null);
+const awaitingAppInstall = ref(false);
+const checkingAppInstall = ref(false);
 const sending = ref(false);
 const showSuccess = ref(false);
 const prUrl = ref("");
@@ -159,8 +162,24 @@ const canSubmit = computed(
 const defaultManualForkUrl = computed(
   () => manualForkUrl.value || `https://github.com/${upstreamLabel.value}/fork`,
 );
+const appInstallUrl = computed(() => submissionInstallUrl.value || installUrl.value);
 
 const modalTitle = computed(() => (isEdit.value ? "Edit record" : "Add record"));
+
+let appInstallWindow: Window | null = null;
+let appInstallPoll: number | null = null;
+let appInstallStartedAt = 0;
+
+onMounted(() => {
+  window.addEventListener("focus", handleAppInstallFocus);
+  window.addEventListener("message", handleAppInstallMessage);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("focus", handleAppInstallFocus);
+  window.removeEventListener("message", handleAppInstallMessage);
+  stopAppInstallPoll();
+});
 
 watch(
   () => props.show,
@@ -169,6 +188,7 @@ watch(
     error.value = null;
     submissionErrorCode.value = null;
     submissionInstallUrl.value = null;
+    appInstallNotice.value = null;
     statusMessage.value = null;
     showAdvanced.value = false;
 
@@ -248,6 +268,7 @@ function close() {
   error.value = null;
   submissionErrorCode.value = null;
   submissionInstallUrl.value = null;
+  appInstallNotice.value = null;
   resetForm();
   emit("close");
 }
@@ -261,6 +282,7 @@ function back() {
   error.value = null;
   submissionErrorCode.value = null;
   submissionInstallUrl.value = null;
+  appInstallNotice.value = null;
   statusMessage.value = null;
 }
 
@@ -290,6 +312,82 @@ async function refreshAfterManualFork() {
   }
 }
 
+function openAppInstall() {
+  const url = appInstallUrl.value;
+  if (!url) return;
+
+  appInstallNotice.value = null;
+  awaitingAppInstall.value = true;
+  appInstallStartedAt = Date.now();
+  appInstallWindow = window.open(
+    url,
+    "dns-editor-github-app-install",
+    "popup,width=760,height=760",
+  );
+
+  if (!appInstallWindow) {
+    awaitingAppInstall.value = false;
+    error.value =
+      "Your browser blocked the GitHub installation window. Allow pop-ups and try again.";
+    return;
+  }
+
+  error.value = "Finish installing the GitHub App in the new window. Your changes will stay here.";
+  stopAppInstallPoll();
+  appInstallPoll = window.setInterval(() => {
+    if (appInstallWindow?.closed) void refreshAfterAppInstall();
+  }, 500);
+}
+
+function handleAppInstallFocus() {
+  if (awaitingAppInstall.value && Date.now() - appInstallStartedAt > 1000) {
+    void refreshAfterAppInstall();
+  }
+}
+
+function handleAppInstallMessage(event: MessageEvent) {
+  if (
+    event.origin === window.location.origin &&
+    event.data?.type === "dns-editor:github-app-installed"
+  ) {
+    void refreshAfterAppInstall();
+  }
+}
+
+function stopAppInstallPoll() {
+  if (appInstallPoll) window.clearInterval(appInstallPoll);
+  appInstallPoll = null;
+}
+
+async function refreshAfterAppInstall() {
+  if (!awaitingAppInstall.value || checkingAppInstall.value) return;
+
+  awaitingAppInstall.value = false;
+  checkingAppInstall.value = true;
+  stopAppInstallPoll();
+
+  try {
+    await refresh();
+    const access = await $fetch<{ accessible: boolean }>("/api/auth/app-access");
+    if (access.accessible) {
+      error.value = null;
+      submissionErrorCode.value = null;
+      submissionInstallUrl.value = null;
+      appInstallNotice.value =
+        "GitHub App access is ready. Your changes are still here—open the pull request again.";
+    } else {
+      error.value =
+        "The GitHub App still cannot access your fork. Update the installation and select your DNS fork, then return here.";
+    }
+  } catch {
+    error.value = "Could not verify GitHub App access. Return here and try again.";
+  } finally {
+    checkingAppInstall.value = false;
+    await nextTick();
+    modalPanel.value?.scrollTo({ top: 0 });
+  }
+}
+
 async function submit() {
   if (!canSubmit.value) return;
 
@@ -297,6 +395,7 @@ async function submit() {
     error.value = null;
     submissionErrorCode.value = null;
     submissionInstallUrl.value = null;
+    appInstallNotice.value = null;
     sending.value = true;
     statusMessage.value = `Opening PR via ${fork.value!.fullName}…`;
 
@@ -484,20 +583,24 @@ const valuePlaceholder = computed(() => {
           class="space-y-5"
           @submit.prevent="submit"
         >
+          <div
+            v-if="appInstallNotice"
+            class="rounded-lg border border-green/20 bg-green/10 p-3 text-sm text-green"
+          >
+            {{ appInstallNotice }}
+          </div>
+
           <div v-if="error" class="rounded-lg border border-red/20 bg-red/10 p-3 text-sm text-red">
             <p>{{ error }}</p>
-            <a
-              v-if="
-                submissionErrorCode === 'APP_INSTALL_REQUIRED' &&
-                (submissionInstallUrl || installUrl)
-              "
-              :href="submissionInstallUrl || installUrl || undefined"
-              target="_blank"
-              rel="noreferrer"
+            <button
+              v-if="submissionErrorCode === 'APP_INSTALL_REQUIRED' && appInstallUrl"
+              type="button"
               class="mt-3 inline-flex rounded-lg bg-primary px-3 py-1.5 font-medium text-white transition-colors hover:bg-primary/85"
+              :disabled="awaitingAppInstall || checkingAppInstall"
+              @click="openAppInstall"
             >
-              Install GitHub App
-            </a>
+              {{ checkingAppInstall ? "Checking access…" : "Install GitHub App" }}
+            </button>
           </div>
 
           <div class="rounded-lg border border-border bg-darker p-3 text-sm">
@@ -576,14 +679,13 @@ const valuePlaceholder = computed(() => {
                     </div>
                     <p v-if="installUrl" class="text-xs text-muted">
                       After forking, if submit fails with a permission error, also
-                      <a
-                        :href="installUrl"
-                        target="_blank"
-                        rel="noreferrer"
+                      <button
+                        type="button"
                         class="text-primary underline-offset-2 hover:underline"
+                        @click="openAppInstall"
                       >
                         install the app
-                      </a>
+                      </button>
                       on your account so it can push branches to your fork.
                     </p>
                   </div>
