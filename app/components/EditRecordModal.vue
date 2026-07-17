@@ -32,7 +32,10 @@ const {
 const CONTACT_KEY = "dnseditor:contact";
 
 const mode = ref<"menu" | "add" | "edit" | null>(null);
+const modalPanel = ref<HTMLElement | null>(null);
 const error = ref<string | null>(null);
+const submissionErrorCode = ref<string | null>(null);
+const submissionInstallUrl = ref<string | null>(null);
 const sending = ref(false);
 const showSuccess = ref(false);
 const prUrl = ref("");
@@ -164,6 +167,8 @@ watch(
   async (open) => {
     if (!open) return;
     error.value = null;
+    submissionErrorCode.value = null;
+    submissionInstallUrl.value = null;
     statusMessage.value = null;
     showAdvanced.value = false;
 
@@ -241,6 +246,8 @@ const isCnamePresetActive = (v: string) => {
 function close() {
   mode.value = null;
   error.value = null;
+  submissionErrorCode.value = null;
+  submissionInstallUrl.value = null;
   resetForm();
   emit("close");
 }
@@ -252,6 +259,8 @@ function back() {
   }
   mode.value = "menu";
   error.value = null;
+  submissionErrorCode.value = null;
+  submissionInstallUrl.value = null;
   statusMessage.value = null;
 }
 
@@ -264,6 +273,8 @@ const startLogin = () => {
 
 async function refreshAfterManualFork() {
   error.value = null;
+  submissionErrorCode.value = null;
+  submissionInstallUrl.value = null;
   statusMessage.value = "Looking for your fork…";
   refreshingFork.value = true;
   try {
@@ -284,6 +295,8 @@ async function submit() {
 
   try {
     error.value = null;
+    submissionErrorCode.value = null;
+    submissionInstallUrl.value = null;
     sending.value = true;
     statusMessage.value = `Opening PR via ${fork.value!.fullName}…`;
 
@@ -332,6 +345,8 @@ async function submit() {
     await refresh();
   } catch (err) {
     const code = errCode(err);
+    submissionErrorCode.value = code;
+    submissionInstallUrl.value = errInstallUrl(err);
     error.value =
       code === "AUTH_REQUIRED"
         ? "Sign in with GitHub to open a pull request."
@@ -339,8 +354,12 @@ async function submit() {
           ? "Your session is not a GitHub App user token (ghu_). Sign out and sign in again with the GitHub App."
           : code === "FORK_REQUIRED"
             ? `You need a fork of ${upstreamLabel.value} on your account first.`
-            : errMsg(err);
+            : code === "APP_INSTALL_REQUIRED"
+              ? "The GitHub App needs access to your fork before it can push this change."
+              : errMsg(err);
     statusMessage.value = null;
+    await nextTick();
+    modalPanel.value?.scrollTo({ top: 0 });
   } finally {
     sending.value = false;
   }
@@ -350,6 +369,14 @@ function errCode(err: unknown): string | null {
   if (!err || typeof err !== "object") return null;
   const data = (err as { data?: { data?: { code?: string }; code?: string } }).data;
   return data?.data?.code || data?.code || null;
+}
+
+function errInstallUrl(err: unknown): string | null {
+  if (!err || typeof err !== "object") return null;
+  const data = (
+    err as { data?: { data?: { installUrl?: string | null }; installUrl?: string | null } }
+  ).data;
+  return data?.data?.installUrl || data?.installUrl || null;
 }
 
 function errMsg(err: unknown) {
@@ -394,6 +421,7 @@ const valuePlaceholder = computed(() => {
       />
 
       <div
+        ref="modalPanel"
         class="relative mx-4 max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-border bg-dark p-6 shadow-2xl"
       >
         <div
@@ -418,18 +446,18 @@ const valuePlaceholder = computed(() => {
           </button>
         </div>
 
-        <div
-          v-if="needsHqApproval"
-          class="mb-5 flex gap-2 rounded-lg border border-yellow/20 bg-yellow/10 p-3 text-yellow"
-        >
-          <Icon name="material-symbols:warning" class="mt-0.5 shrink-0" size="1rem" />
-          <p class="text-sm">
-            Hold up! Changes to this domain need HQ approval. Only continue if you already have the
-            green light (or you are testing and will close the PR).
-          </p>
-        </div>
-
         <div v-if="mode === 'menu'" class="space-y-4">
+          <div
+            v-if="needsHqApproval"
+            class="flex gap-2 rounded-lg border border-yellow/20 bg-yellow/10 p-3 text-yellow"
+          >
+            <Icon name="material-symbols:warning" class="mt-0.5 shrink-0" size="1rem" />
+            <p class="text-sm">
+              Hold up! Changes to this domain need HQ approval. Only continue if you already have
+              the green light (or you are testing and will close the PR).
+            </p>
+          </div>
+
           <button
             type="button"
             class="w-full rounded-lg border border-border bg-darker p-4 text-left transition-colors hover:border-primary hover:bg-primary/5"
@@ -456,6 +484,22 @@ const valuePlaceholder = computed(() => {
           class="space-y-5"
           @submit.prevent="submit"
         >
+          <div v-if="error" class="rounded-lg border border-red/20 bg-red/10 p-3 text-sm text-red">
+            <p>{{ error }}</p>
+            <a
+              v-if="
+                submissionErrorCode === 'APP_INSTALL_REQUIRED' &&
+                (submissionInstallUrl || installUrl)
+              "
+              :href="submissionInstallUrl || installUrl || undefined"
+              target="_blank"
+              rel="noreferrer"
+              class="mt-3 inline-flex rounded-lg bg-primary px-3 py-1.5 font-medium text-white transition-colors hover:bg-primary/85"
+            >
+              Install GitHub App
+            </a>
+          </div>
+
           <div class="rounded-lg border border-border bg-darker p-3 text-sm">
             <template v-if="authPending">
               <p class="text-muted">Checking GitHub sign-in…</p>
@@ -805,13 +849,6 @@ const valuePlaceholder = computed(() => {
           <p v-if="isEdit && !hasChanges" class="text-xs text-muted">
             Change at least one field to open a pull request.
           </p>
-
-          <div
-            v-if="error"
-            class="mt-4 rounded-lg border border-red/20 bg-red/10 p-3 text-sm text-red"
-          >
-            {{ error }}
-          </div>
         </form>
       </div>
     </div>

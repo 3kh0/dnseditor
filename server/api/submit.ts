@@ -22,8 +22,10 @@ import {
   createUserOctokit,
   formatCommitMessageWithBotCoAuthor,
   getAppBotIdentity,
+  getInstallUrl,
   getUpstreamRepo,
   githubErrorMessage,
+  isIntegrationAccessError,
   requireUserFork,
   requireUserSession,
   syncForkWithUpstream,
@@ -312,6 +314,17 @@ Please review carefully before merging.
     }
   } catch (error) {
     if (error && typeof error === "object" && "statusCode" in error) throw error;
+    if (isIntegrationAccessError(error)) {
+      throw createError({
+        statusCode: 403,
+        message:
+          "Install the GitHub App on your account and grant it access to your fork, then try again.",
+        data: {
+          code: "APP_INSTALL_REQUIRED",
+          installUrl: getInstallUrl(event),
+        },
+      });
+    }
     console.error("GitHub API error:", error);
     throw createError({
       statusCode: 500,

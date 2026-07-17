@@ -418,6 +418,12 @@ export async function createBranchOnFork(
 const isNotFound = (e: unknown) =>
   typeof e === "object" && e !== null && "status" in e && (e as { status: number }).status === 404;
 
+export function isIntegrationAccessError(e: unknown): boolean {
+  if (!e || typeof e !== "object") return false;
+  const status = (e as { status?: number }).status;
+  return status === 403 && /resource not accessible by integration/i.test(githubErrorMessage(e));
+}
+
 export function githubErrorMessage(error: unknown) {
   if (error && typeof error === "object") {
     const err = error as {
