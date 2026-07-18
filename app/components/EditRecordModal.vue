@@ -50,6 +50,17 @@ const statusMessage = ref<string | null>(null);
 
 const original = ref<EditingRecord | null>(null);
 
+interface QueuedRecord {
+  subdomain: string;
+  type: string;
+  value: string;
+  ttl?: number;
+  mxPreference: number;
+  proxied: boolean;
+}
+
+const queued = ref<QueuedRecord[]>([]);
+
 const form = ref({
   subdomain: "",
   type: "CNAME",
@@ -120,20 +131,38 @@ watch(
   },
 );
 
-const isValid = computed(() => {
-  const { subdomain, value, contact, ttl, type, mxPreference } = form.value;
+const contactValid = computed(() => hasContact(form.value.contact.trim()));
+
+/** True when the in-progress record fields (everything but contact) form a valid record. */
+const currentRecordValid = computed(() => {
+  const { subdomain, value, ttl, type, mxPreference } = form.value;
   const s = subdomain.trim();
   const v = value.trim();
-  const c = contact.trim();
-  if (!s || !v || !c) return false;
+  if (!s || !v) return false;
   if (ttl !== "" && (!(Number(ttl) > 0) || !Number.isFinite(Number(ttl)))) return false;
-  if (!isSubdomain(s) || !hasContact(c)) return false;
+  if (!isSubdomain(s)) return false;
   if (type === "MX") {
     const pref = Number(mxPreference);
     if (!Number.isFinite(pref) || pref < 0) return false;
   }
-  if (isEdit.value && !hasChanges.value) return false;
   return true;
+});
+
+/** The in-progress form counts as a record once a value is typed. */
+const currentCountsAsRecord = computed(() => form.value.value.trim() !== "");
+
+const totalRecords = computed(
+  () => queued.value.length + (currentCountsAsRecord.value && currentRecordValid.value ? 1 : 0),
+);
+
+const isValid = computed(() => {
+  if (!contactValid.value) return false;
+  if (isEdit.value) return currentRecordValid.value && hasChanges.value;
+  if (queued.value.length > 0) {
+    // A half-typed record blocks submit instead of being silently dropped.
+    return !currentCountsAsRecord.value || currentRecordValid.value;
+  }
+  return currentRecordValid.value;
 });
 
 /** True when the form differs from the original record being edited. */
@@ -233,8 +262,36 @@ function resetForm() {
     proxied: false,
   };
   original.value = null;
+  queued.value = [];
   showAdvanced.value = false;
   statusMessage.value = null;
+}
+
+function snapshotCurrentRecord(): QueuedRecord {
+  return {
+    subdomain: form.value.subdomain.trim().toLowerCase(),
+    type: form.value.type,
+    value: form.value.value.trim(),
+    ...(form.value.ttl !== "" && !(form.value.proxied && canProxy.value)
+      ? { ttl: Number(form.value.ttl) }
+      : {}),
+    mxPreference: Number(form.value.mxPreference),
+    proxied: form.value.proxied && canProxy.value,
+  };
+}
+
+function queueCurrentRecord() {
+  if (!currentRecordValid.value) return;
+  queued.value.push(snapshotCurrentRecord());
+  // Keep subdomain (batches often target related names) and contact; clear the rest.
+  form.value.value = "";
+  form.value.ttl = "";
+  form.value.mxPreference = 10;
+  form.value.proxied = false;
+}
+
+function removeQueuedRecord(index: number) {
+  queued.value.splice(index, 1);
 }
 
 function applyEditing(rec: EditingRecord) {
@@ -399,29 +456,51 @@ async function submit() {
     sending.value = true;
     statusMessage.value = `Opening PR via ${fork.value!.fullName}…`;
 
-    const body: Record<string, unknown> = {
-      domain: props.domain,
-      action: isEdit.value ? "edit" : "add",
-      record: {
-        subdomain: form.value.subdomain.trim().toLowerCase(),
-        type: form.value.type,
-        value: form.value.value.trim(),
-        contact: form.value.contact.trim(),
-        ...(form.value.ttl !== "" && !(form.value.proxied && canProxy.value)
-          ? { ttl: Number(form.value.ttl) }
-          : {}),
-        ...(form.value.type === "MX" ? { mxPreference: Number(form.value.mxPreference) } : {}),
-        ...(form.value.proxied && canProxy.value ? { proxied: true } : {}),
-      },
-    };
+    let body: Record<string, unknown>;
 
     if (isEdit.value && original.value) {
-      body.original = {
-        type: original.value.type,
-        value: original.value.value,
-        ...(original.value.type === "MX"
-          ? { mxPreference: Number(original.value.mxPreference ?? 10) }
-          : {}),
+      body = {
+        domain: props.domain,
+        action: "edit",
+        record: {
+          subdomain: form.value.subdomain.trim().toLowerCase(),
+          type: form.value.type,
+          value: form.value.value.trim(),
+          contact: form.value.contact.trim(),
+          ...(form.value.ttl !== "" && !(form.value.proxied && canProxy.value)
+            ? { ttl: Number(form.value.ttl) }
+            : {}),
+          ...(form.value.type === "MX" ? { mxPreference: Number(form.value.mxPreference) } : {}),
+          ...(form.value.proxied && canProxy.value ? { proxied: true } : {}),
+        },
+        original: {
+          type: original.value.type,
+          value: original.value.value,
+          ...(original.value.type === "MX"
+            ? { mxPreference: Number(original.value.mxPreference ?? 10) }
+            : {}),
+        },
+      };
+    } else {
+      const records = [
+        ...queued.value,
+        ...(currentCountsAsRecord.value && currentRecordValid.value
+          ? [snapshotCurrentRecord()]
+          : []),
+      ].map((r) => ({
+        subdomain: r.subdomain,
+        type: r.type,
+        value: r.value,
+        ...(r.ttl !== undefined ? { ttl: r.ttl } : {}),
+        ...(r.type === "MX" ? { mxPreference: r.mxPreference } : {}),
+        ...(r.proxied ? { proxied: true } : {}),
+      }));
+
+      body = {
+        domain: props.domain,
+        action: "add",
+        contact: form.value.contact.trim(),
+        records,
       };
     }
 
@@ -694,7 +773,57 @@ const valuePlaceholder = computed(() => {
             </template>
           </div>
 
-          <p class="text-lg text-snow">
+          <div v-if="!isEdit && queued.length > 0">
+            <p class="mb-2 text-sm font-medium text-snow">Queued records ({{ queued.length }})</p>
+            <ul class="space-y-1.5">
+              <li
+                v-for="(q, i) in queued"
+                :key="`${q.type}-${q.subdomain}-${q.value}-${i}`"
+                class="flex items-center gap-2 rounded-lg border border-border bg-darker px-3 py-2 text-sm"
+              >
+                <span
+                  class="shrink-0 rounded bg-primary/15 px-1.5 py-0.5 text-xs font-semibold text-primary"
+                >
+                  {{ q.type }}
+                </span>
+                <span class="shrink-0 truncate text-snow">{{ q.subdomain }}.{{ bare }}</span>
+                <Icon
+                  name="material-symbols:arrow-right-alt"
+                  size="1rem"
+                  class="shrink-0 text-muted"
+                />
+                <span class="min-w-0 flex-1 truncate text-muted" :title="q.value">
+                  {{ q.value }}
+                </span>
+                <span
+                  v-if="q.proxied"
+                  class="shrink-0 rounded bg-orange/15 px-1.5 py-0.5 text-xs text-orange"
+                >
+                  Proxied
+                </span>
+                <span
+                  v-if="q.ttl !== undefined"
+                  class="shrink-0 rounded bg-steel/40 px-1.5 py-0.5 text-xs text-muted"
+                >
+                  TTL {{ q.ttl }}
+                </span>
+                <button
+                  type="button"
+                  class="flex size-6 shrink-0 items-center justify-center rounded text-muted transition-colors hover:bg-darkless hover:text-snow"
+                  :aria-label="`Remove queued ${q.type} record for ${q.subdomain}.${bare}`"
+                  @click="removeQueuedRecord(i)"
+                >
+                  <Icon name="material-symbols:close-rounded" size="1rem" />
+                </button>
+              </li>
+            </ul>
+            <p class="mt-2 text-xs text-muted">All queued records go into a single pull request.</p>
+          </div>
+
+          <p
+            v-if="isEdit || queued.length === 0 || currentCountsAsRecord"
+            class="text-lg text-snow"
+          >
             <template v-if="isEdit">Update </template>
             <span :class="previewName ? 'text-snow' : 'text-muted'">{{
               previewName ?? "[name]"
@@ -930,13 +1059,24 @@ const valuePlaceholder = computed(() => {
             </div>
           </div>
 
-          <div class="flex gap-2 border-t border-border pt-4">
+          <div class="flex flex-wrap gap-2 border-t border-border pt-4">
             <button
               type="submit"
               class="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary/85 disabled:opacity-50"
               :disabled="!canSubmit"
             >
-              Open Pull Request
+              Open Pull Request{{ !isEdit && totalRecords > 1 ? ` (${totalRecords} records)` : "" }}
+            </button>
+            <button
+              v-if="!isEdit"
+              type="button"
+              class="rounded-lg border border-border px-4 py-2 text-sm text-snow transition-colors hover:bg-darkless disabled:opacity-50"
+              :disabled="!currentRecordValid || sending || refreshingFork"
+              title="Queue this record and add another one to the same pull request"
+              @click="queueCurrentRecord"
+            >
+              <Icon name="material-symbols:add" size="0.875rem" class="mr-1" />
+              Add another record
             </button>
             <button
               type="button"

@@ -31,18 +31,21 @@ import {
   syncForkWithUpstream,
 } from "../utils/github";
 
+interface RecordInput {
+  subdomain?: string;
+  ttl?: number;
+  type?: string;
+  value?: unknown;
+  mxPreference?: number;
+  proxied?: boolean;
+}
+
 interface SubmitBody {
   domain?: string;
   action?: "add" | "edit";
-  record?: {
-    subdomain?: string;
-    ttl?: number;
-    type?: string;
-    value?: unknown;
-    contact?: string;
-    mxPreference?: number;
-    proxied?: boolean;
-  };
+  contact?: string;
+  records?: RecordInput[];
+  record?: RecordInput & { contact?: string };
   original?: {
     type?: string;
     value?: unknown;
@@ -50,7 +53,60 @@ interface SubmitBody {
   };
 }
 
+interface NormalizedRecord {
+  subdomain: string;
+  type: string;
+  ttl?: number;
+  mxPreference: number;
+  proxied: boolean;
+  value: string;
+  lines: string[];
+}
+
 const TYPES = new Set(["A", "AAAA", "CNAME", "ALIAS", "TXT", "MX"]);
+const MAX_BATCH_RECORDS = 10;
+
+function validateRecordInput(domain: string, input: RecordInput, label: string): NormalizedRecord {
+  const at = label ? `${label}: ` : "";
+  const subdomain = input.subdomain?.trim().toLowerCase();
+  const type = input.type?.trim().toUpperCase();
+  const rawValue = input.value;
+  const mxPreference = Number(input.mxPreference ?? 10);
+  const wantProxy = input.proxied === true;
+  const ttl = parseOptionalTtl(input.ttl);
+
+  if (!subdomain || !type || rawValue === undefined || rawValue === null || rawValue === "") {
+    throw createError({ statusCode: 400, message: `${at}Missing required fields` });
+  }
+  if (!isSubdomain(subdomain)) {
+    throw createError({
+      statusCode: 400,
+      message: `${at}Invalid subdomain. Use letters, numbers, hyphens, underscores, and dots.`,
+    });
+  }
+  if (!TYPES.has(type)) {
+    throw createError({ statusCode: 400, message: `${at}Unsupported record type: ${type}` });
+  }
+
+  const proxied = wantProxy && supportsCfProxy(domain, type);
+  if (wantProxy && !proxied) {
+    throw createError({
+      statusCode: 400,
+      message: `${at}Cloudflare proxy is only available on hackclub.com for A, AAAA, and CNAME records`,
+    });
+  }
+
+  const value = normalizeRecordValue(type, rawValue, mxPreference);
+  const lines = formatRecordLines({
+    type,
+    ttl: proxied ? undefined : ttl,
+    value,
+    mxPreference,
+    proxied,
+  });
+
+  return { subdomain, type, ttl, mxPreference, proxied, value, lines };
+}
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<SubmitBody>(event);
@@ -59,28 +115,10 @@ export default defineEventHandler(async (event) => {
 
   const action = body.action === "edit" ? "edit" : "add";
   const domain = body.domain?.trim();
-  const subdomain = body.record?.subdomain?.trim().toLowerCase();
-  const type = body.record?.type?.trim().toUpperCase();
-  const contact = body.record?.contact?.trim();
-  const rawValue = body.record?.value;
-  const mxPreference = Number(body.record?.mxPreference ?? 10);
-  const wantProxy = body.record?.proxied === true;
-  const ttl = parseOptionalTtl(body.record?.ttl);
+  const contact = (body.contact ?? body.record?.contact)?.trim();
 
   if (!domain || !isDomainFile(domain)) {
     throw createError({ statusCode: 400, message: "Unknown or missing domain file" });
-  }
-  if (!subdomain || !type || rawValue === undefined || rawValue === null || rawValue === "") {
-    throw createError({ statusCode: 400, message: "Missing required fields" });
-  }
-  if (!isSubdomain(subdomain)) {
-    throw createError({
-      statusCode: 400,
-      message: "Invalid subdomain. Use letters, numbers, hyphens, underscores, and dots.",
-    });
-  }
-  if (!TYPES.has(type)) {
-    throw createError({ statusCode: 400, message: `Unsupported record type: ${type}` });
   }
   if (!contact || !hasContact(contact)) {
     throw createError({
@@ -88,6 +126,30 @@ export default defineEventHandler(async (event) => {
       message: "Contact must include an email and/or Slack member ID (e.g. U012AB345CD)",
     });
   }
+
+  if (action === "edit" && body.records) {
+    throw createError({ statusCode: 400, message: "Batch records are only supported when adding" });
+  }
+  const inputs =
+    action === "add" && Array.isArray(body.records)
+      ? body.records
+      : body.record
+        ? [body.record]
+        : [];
+  if (inputs.length === 0) {
+    throw createError({ statusCode: 400, message: "Missing required fields" });
+  }
+  if (inputs.length > MAX_BATCH_RECORDS) {
+    throw createError({
+      statusCode: 400,
+      message: `Too many records — at most ${MAX_BATCH_RECORDS} per pull request`,
+    });
+  }
+
+  const recs = inputs.map((input, i) =>
+    validateRecordInput(domain, input, inputs.length > 1 ? `Record ${i + 1}` : ""),
+  );
+  const first = recs[0]!;
 
   const origType = body.original?.type?.trim().toUpperCase();
   const origValue = body.original?.value;
@@ -109,23 +171,6 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  const proxied = wantProxy && supportsCfProxy(domain, type);
-  if (wantProxy && !proxied) {
-    throw createError({
-      statusCode: 400,
-      message: "Cloudflare proxy is only available on hackclub.com for A, AAAA, and CNAME records",
-    });
-  }
-
-  const recordValue = normalizeRecordValue(type, rawValue, mxPreference);
-  const recordLines = formatRecordLines({
-    type,
-    // Cloudflare auto-TTL when orange-clouded
-    ttl: proxied ? undefined : ttl,
-    value: recordValue,
-    mxPreference,
-    proxied,
-  });
   const octokit = createUserOctokit(session.accessToken);
 
   try {
@@ -141,13 +186,13 @@ export default defineEventHandler(async (event) => {
     if (!isObj(parsed)) throw new Error(`${domain} does not contain a YAML mapping`);
 
     let updated: string;
-    let isNew = false;
+    const newSubdomains = new Set<string>();
 
     if (action === "edit") {
-      if (!Object.prototype.hasOwnProperty.call(parsed, subdomain)) {
+      if (!Object.prototype.hasOwnProperty.call(parsed, first.subdomain)) {
         throw createError({
           statusCode: 404,
-          message: `Subdomain "${subdomain}" not found in ${domain}`,
+          message: `Subdomain "${first.subdomain}" not found in ${domain}`,
         });
       }
       const matchValue = normalizeRecordValue(
@@ -157,7 +202,7 @@ export default defineEventHandler(async (event) => {
       );
       updated = replaceExistingRecord(
         content,
-        subdomain,
+        first.subdomain,
         {
           type: origType!,
           value: matchValue,
@@ -167,22 +212,40 @@ export default defineEventHandler(async (event) => {
         },
         contact,
         {
-          type,
-          ttl: proxied ? undefined : ttl,
-          value: recordValue,
-          mxPreference,
-          proxied,
+          type: first.type,
+          ttl: first.proxied ? undefined : first.ttl,
+          value: first.value,
+          mxPreference: first.mxPreference,
+          proxied: first.proxied,
         },
       );
     } else {
-      isNew = !Object.prototype.hasOwnProperty.call(parsed, subdomain);
-      updated = isNew
-        ? insertNewSubdomain(content, Object.keys(parsed), subdomain, contact, recordLines)
-        : appendToExistingSubdomain(content, subdomain, recordLines);
+      updated = content;
+      for (const rec of recs) {
+        const current = YAML.parse(updated);
+        if (!isObj(current)) throw new Error(`${domain} does not contain a YAML mapping`);
+        if (!Object.prototype.hasOwnProperty.call(current, rec.subdomain)) {
+          newSubdomains.add(rec.subdomain);
+          updated = insertNewSubdomain(
+            updated,
+            Object.keys(current),
+            rec.subdomain,
+            contact,
+            rec.lines,
+          );
+        } else {
+          updated = appendToExistingSubdomain(updated, rec.subdomain, rec.lines);
+        }
+      }
     }
 
-    const branch = `dns-editor-${subdomain.replace(/[^a-z0-9-]/gi, "-").slice(0, 40)}-${Date.now()}`;
-    const fqdn = `${subdomain}.${bareDomain(domain)}`;
+    const branch = `dns-editor-${first.subdomain.replace(/[^a-z0-9-]/gi, "-").slice(0, 40)}-${Date.now()}`;
+    const fqdns = [...new Set(recs.map((rec) => `${rec.subdomain}.${bareDomain(domain)}`))];
+    const fqdn = fqdns[0]!;
+    const fqdnSummary =
+      fqdns.length <= 3
+        ? fqdns.join(", ")
+        : `${fqdns.slice(0, 3).join(", ")} +${fqdns.length - 3} more`;
     const verb = action === "edit" ? "Update" : "Add";
 
     await syncForkWithUpstream(octokit, fork, fork.defaultBranch || upstream.branch);
@@ -195,7 +258,9 @@ export default defineEventHandler(async (event) => {
 
     const bot = await getAppBotIdentity(octokit, event);
     const commitMessage = formatCommitMessageWithBotCoAuthor(
-      `${verb} DNS record: ${fqdn}`,
+      recs.length > 1
+        ? `Add ${recs.length} DNS records: ${fqdnSummary}`
+        : `${verb} DNS record: ${fqdn}`,
       bot,
       "Submitted with Hack Club DNS Editor.",
     );
@@ -210,8 +275,17 @@ export default defineEventHandler(async (event) => {
       sha,
     });
 
-    const preview = [`${formatYamlKey(subdomain)}: # ${contact}`, ...recordLines].join("\n");
-    const prTitle = `${verb} record for ${fqdn}`;
+    const previewGroups = new Map<string, string[]>();
+    for (const rec of recs) {
+      const lines = previewGroups.get(rec.subdomain) ?? [];
+      lines.push(...rec.lines);
+      previewGroups.set(rec.subdomain, lines);
+    }
+    const preview = [...previewGroups]
+      .map(([sub, lines]) => [`${formatYamlKey(sub)}: # ${contact}`, ...lines].join("\n"))
+      .join("\n");
+    const prTitle =
+      recs.length > 1 ? `Add ${recs.length} records: ${fqdnSummary}` : `${verb} record for ${fqdn}`;
     const appLink = bot
       ? `[${bot.login}](${bot.htmlUrl})`
       : "[Hack Club DNS Editor](https://github.com/apps/hack-club-dns-editor)";
@@ -247,12 +321,12 @@ Please review carefully before merging.
 
 Opened by @${session.login} via ${appLink}.
 
-### New record
+### ${recs.length > 1 ? `New records (${recs.length})` : "New record"}
 \`\`\`yaml
 ${preview}
 \`\`\`
 
-${isNew ? `Contact: \`${contact}\`` : "Added to an existing subdomain entry."}
+${newSubdomains.size > 0 ? `Contact: \`${contact}\`` : "Added to an existing subdomain entry."}
 
 Please review carefully before merging.
 `;
