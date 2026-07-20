@@ -31,6 +31,7 @@ export interface EditingRecord {
 }
 
 const editingRecord = ref<EditingRecord | null>(null);
+const modalMode = ref<"edit" | "delete">("edit");
 
 function openAdd() {
   editingRecord.value = null;
@@ -39,6 +40,13 @@ function openAdd() {
 
 function openEdit(record: EditingRecord) {
   editingRecord.value = record;
+  modalMode.value = "edit";
+  showEditModal.value = true;
+}
+
+function openDelete(record: EditingRecord) {
+  editingRecord.value = record;
+  modalMode.value = "delete";
   showEditModal.value = true;
 }
 
@@ -200,6 +208,7 @@ const matched = computed(() => {
             :domain="selectedDomain"
             :search-query="searchQuery"
             @edit="openEdit"
+            @delete="openDelete"
           />
         </template>
       </div>
@@ -209,6 +218,7 @@ const matched = computed(() => {
       :show="showEditModal"
       :domain="selectedDomain"
       :editing="editingRecord"
+      :initial-mode="modalMode"
       @close="closeModal"
     />
   </div>

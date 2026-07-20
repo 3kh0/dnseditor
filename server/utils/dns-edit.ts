@@ -172,6 +172,107 @@ export function replaceExistingRecord(
   return join([...lines.slice(0, keyIdx), ...block, ...lines.slice(blockEnd)]);
 }
 
+export function removeExistingRecord(content: string, subdomain: string, match: RecordMatch) {
+  const lines = split(content);
+  const top = findTopKeys(lines);
+  const idx = top.findIndex((e) => e.key === subdomain);
+  if (idx === -1) {
+    throw createError({ statusCode: 404, message: `Subdomain "${subdomain}" not found` });
+  }
+
+  const keyIdx = top[idx]!.i;
+  const nextIdx = top[idx + 1]?.i ?? lines.length;
+
+  let blockEnd = nextIdx;
+  while (blockEnd > keyIdx + 1 && (lines[blockEnd - 1] ?? "").trim() === "") blockEnd--;
+
+  const blockText = lines.slice(keyIdx, blockEnd).join("\n");
+  let parsed: unknown;
+  try {
+    parsed = parseYamlBlock(blockText);
+  } catch (e) {
+    throw createError({
+      statusCode: 500,
+      message: `Failed to parse subdomain block for "${subdomain}"`,
+      cause: e,
+    });
+  }
+
+  if (!isObj(parsed) || !Object.prototype.hasOwnProperty.call(parsed, subdomain)) {
+    throw createError({
+      statusCode: 500,
+      message: `Could not parse subdomain entry for "${subdomain}"`,
+    });
+  }
+
+  const entry = parsed[subdomain];
+  const remaining = removeMatchingItem(entry, match);
+
+  if (remaining === null) {
+    return join([...lines.slice(0, keyIdx), ...lines.slice(nextIdx)]);
+  }
+
+  const contactMatch = (lines[keyIdx] ?? "").match(/#\s*(.*)$/);
+  const contact = contactMatch?.[1]?.trim() ?? "";
+  const block = serializeSubdomainBlock(subdomain, contact, remaining);
+
+  return join([...lines.slice(0, keyIdx), ...block, ...lines.slice(blockEnd)]);
+}
+
+function removeMatchingItem(entry: unknown, match: RecordMatch): unknown {
+  const matchType = match.type.toUpperCase();
+  const wasList = Array.isArray(entry);
+  const list: unknown[] = wasList ? [...entry] : [entry];
+  let found = false;
+  const out: unknown[] = [];
+
+  for (const item of list) {
+    if (!isObj(item)) {
+      out.push(item);
+      continue;
+    }
+
+    const itemType = typeof item.type === "string" ? item.type.toUpperCase() : "";
+    if (itemType !== matchType) {
+      out.push(item);
+      continue;
+    }
+
+    if (Array.isArray(item.values)) {
+      const valueIdx = item.values.findIndex((v) => valueMatches(v, match));
+      if (valueIdx === -1) {
+        out.push(item);
+        continue;
+      }
+      found = true;
+
+      const remaining = item.values.filter((_, i) => i !== valueIdx);
+      if (remaining.length > 0) {
+        out.push(rebuildRecordKeepingValues(item, remaining));
+      }
+      continue;
+    }
+
+    if (valueMatches(item.value, match)) {
+      found = true;
+      continue;
+    }
+
+    out.push(item);
+  }
+
+  if (!found) {
+    throw createError({
+      statusCode: 404,
+      message: `No matching ${matchType} record with that value was found under this subdomain`,
+    });
+  }
+
+  if (out.length === 0) return null;
+  if (!wasList && out.length === 1) return out[0];
+  return out;
+}
+
 const parseYamlBlock = (text: string): unknown => YAML.parse(text);
 
 function mutateEntry(entry: unknown, match: RecordMatch, replacement: ReplacementRecord): unknown {

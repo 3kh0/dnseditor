@@ -15,6 +15,7 @@ import {
   insertNewSubdomain,
   normalizeRecordValue,
   parseOptionalTtl,
+  removeExistingRecord,
   replaceExistingRecord,
 } from "../utils/dns-edit";
 import {
@@ -42,7 +43,7 @@ interface RecordInput {
 
 interface SubmitBody {
   domain?: string;
-  action?: "add" | "edit";
+  action?: "add" | "edit" | "delete";
   contact?: string;
   records?: RecordInput[];
   record?: RecordInput & { contact?: string };
@@ -51,6 +52,13 @@ interface SubmitBody {
     value?: unknown;
     mxPreference?: number;
   };
+}
+
+interface DeleteTarget {
+  subdomain: string;
+  type: string;
+  value: string;
+  mxPreference?: number;
 }
 
 interface NormalizedRecord {
@@ -108,35 +116,62 @@ function validateRecordInput(domain: string, input: RecordInput, label: string):
   return { subdomain, type, ttl, mxPreference, proxied, value, lines };
 }
 
+function validateDeleteTarget(input: RecordInput | undefined): DeleteTarget {
+  const subdomain = input?.subdomain?.trim().toLowerCase();
+  const type = input?.type?.trim().toUpperCase();
+  const rawValue = input?.value;
+
+  if (!subdomain || !type || rawValue === undefined || rawValue === null || rawValue === "") {
+    throw createError({ statusCode: 400, message: "Missing required fields" });
+  }
+  if (!isSubdomain(subdomain)) {
+    throw createError({
+      statusCode: 400,
+      message: "Invalid subdomain. Use letters, numbers, hyphens, underscores, and dots.",
+    });
+  }
+  if (!TYPES.has(type)) {
+    throw createError({ statusCode: 400, message: `Unsupported record type: ${type}` });
+  }
+
+  const mxPreference = input?.mxPreference !== undefined ? Number(input.mxPreference) : undefined;
+  const value = normalizeRecordValue(type, rawValue, mxPreference ?? (type === "MX" ? 10 : 0));
+
+  return { subdomain, type, value, mxPreference };
+}
+
 export default defineEventHandler(async (event) => {
   const body = await readBody<SubmitBody>(event);
   const session = await requireUserSession(event);
   const upstream = getUpstreamRepo(event);
 
-  const action = body.action === "edit" ? "edit" : "add";
+  const action = body.action === "edit" ? "edit" : body.action === "delete" ? "delete" : "add";
   const domain = body.domain?.trim();
   const contact = (body.contact ?? body.record?.contact)?.trim();
 
   if (!domain || !isDomainFile(domain)) {
     throw createError({ statusCode: 400, message: "Unknown or missing domain file" });
   }
-  if (!contact || !hasContact(contact)) {
+  if (action !== "delete" && (!contact || !hasContact(contact))) {
     throw createError({
       statusCode: 400,
       message: "Contact must include an email and/or Slack member ID (e.g. U012AB345CD)",
     });
   }
 
-  if (action === "edit" && body.records) {
+  if (action !== "add" && body.records) {
     throw createError({ statusCode: 400, message: "Batch records are only supported when adding" });
   }
+
+  const deleteTarget = action === "delete" ? validateDeleteTarget(body.record) : null;
+
   const inputs =
     action === "add" && Array.isArray(body.records)
       ? body.records
-      : body.record
+      : action !== "delete" && body.record
         ? [body.record]
         : [];
-  if (inputs.length === 0) {
+  if (action !== "delete" && inputs.length === 0) {
     throw createError({ statusCode: 400, message: "Missing required fields" });
   }
   if (inputs.length > MAX_BATCH_RECORDS) {
@@ -149,7 +184,7 @@ export default defineEventHandler(async (event) => {
   const recs = inputs.map((input, i) =>
     validateRecordInput(domain, input, inputs.length > 1 ? `Record ${i + 1}` : ""),
   );
-  const first = recs[0]!;
+  const first = recs[0];
 
   const origType = body.original?.type?.trim().toUpperCase();
   const origValue = body.original?.value;
@@ -188,11 +223,26 @@ export default defineEventHandler(async (event) => {
     let updated: string;
     const newSubdomains = new Set<string>();
 
-    if (action === "edit") {
-      if (!Object.prototype.hasOwnProperty.call(parsed, first.subdomain)) {
+    if (action === "delete") {
+      const target = deleteTarget!;
+      if (!Object.prototype.hasOwnProperty.call(parsed, target.subdomain)) {
         throw createError({
           statusCode: 404,
-          message: `Subdomain "${first.subdomain}" not found in ${domain}`,
+          message: `Subdomain "${target.subdomain}" not found in ${domain}`,
+        });
+      }
+      updated = removeExistingRecord(content, target.subdomain, {
+        type: target.type,
+        value: target.value,
+        ...(target.type === "MX" && target.mxPreference !== undefined
+          ? { mxPreference: target.mxPreference }
+          : {}),
+      });
+    } else if (action === "edit") {
+      if (!Object.prototype.hasOwnProperty.call(parsed, first!.subdomain)) {
+        throw createError({
+          statusCode: 404,
+          message: `Subdomain "${first!.subdomain}" not found in ${domain}`,
         });
       }
       const matchValue = normalizeRecordValue(
@@ -202,7 +252,7 @@ export default defineEventHandler(async (event) => {
       );
       updated = replaceExistingRecord(
         content,
-        first.subdomain,
+        first!.subdomain,
         {
           type: origType!,
           value: matchValue,
@@ -210,13 +260,13 @@ export default defineEventHandler(async (event) => {
             ? { mxPreference: origMxPreference }
             : {}),
         },
-        contact,
+        contact!,
         {
-          type: first.type,
-          ttl: first.proxied ? undefined : first.ttl,
-          value: first.value,
-          mxPreference: first.mxPreference,
-          proxied: first.proxied,
+          type: first!.type,
+          ttl: first!.proxied ? undefined : first!.ttl,
+          value: first!.value,
+          mxPreference: first!.mxPreference,
+          proxied: first!.proxied,
         },
       );
     } else {
@@ -230,7 +280,7 @@ export default defineEventHandler(async (event) => {
             updated,
             Object.keys(current),
             rec.subdomain,
-            contact,
+            contact!,
             rec.lines,
           );
         } else {
@@ -239,14 +289,18 @@ export default defineEventHandler(async (event) => {
       }
     }
 
-    const branch = `dns-editor-${first.subdomain.replace(/[^a-z0-9-]/gi, "-").slice(0, 40)}-${Date.now()}`;
-    const fqdns = [...new Set(recs.map((rec) => `${rec.subdomain}.${bareDomain(domain)}`))];
+    const branchSubdomain = action === "delete" ? deleteTarget!.subdomain : first!.subdomain;
+    const branch = `dns-editor-${branchSubdomain.replace(/[^a-z0-9-]/gi, "-").slice(0, 40)}-${Date.now()}`;
+    const fqdns =
+      action === "delete"
+        ? [`${deleteTarget!.subdomain}.${bareDomain(domain)}`]
+        : [...new Set(recs.map((rec) => `${rec.subdomain}.${bareDomain(domain)}`))];
     const fqdn = fqdns[0]!;
     const fqdnSummary =
       fqdns.length <= 3
         ? fqdns.join(", ")
         : `${fqdns.slice(0, 3).join(", ")} +${fqdns.length - 3} more`;
-    const verb = action === "edit" ? "Update" : "Add";
+    const verb = action === "edit" ? "Update" : action === "delete" ? "Delete" : "Add";
 
     await syncForkWithUpstream(octokit, fork, fork.defaultBranch || upstream.branch);
     const { data: ref } = await octokit.git.getRef({
@@ -262,7 +316,9 @@ export default defineEventHandler(async (event) => {
         ? `Add ${recs.length} DNS records: ${fqdnSummary}`
         : `${verb} DNS record: ${fqdn}`,
       bot,
-      "Submitted with Hack Club DNS Editor.",
+      action === "delete"
+        ? "Removed with Hack Club DNS Editor."
+        : "Submitted with Hack Club DNS Editor.",
     );
 
     await octokit.repos.createOrUpdateFileContents({
@@ -285,7 +341,11 @@ export default defineEventHandler(async (event) => {
       .map(([sub, lines]) => [`${formatYamlKey(sub)}: # ${contact}`, ...lines].join("\n"))
       .join("\n");
     const prTitle =
-      recs.length > 1 ? `Add ${recs.length} records: ${fqdnSummary}` : `${verb} record for ${fqdn}`;
+      action === "delete"
+        ? `Delete record for ${fqdn}`
+        : recs.length > 1
+          ? `Add ${recs.length} records: ${fqdnSummary}`
+          : `${verb} record for ${fqdn}`;
     const appLink = bot
       ? `[${bot.login}](${bot.htmlUrl})`
       : "[Hack Club DNS Editor](https://github.com/apps/hack-club-dns-editor)";
@@ -297,7 +357,13 @@ export default defineEventHandler(async (event) => {
               ? ` (preference ${origMxPreference})`
               : ""
           }`
-        : "";
+        : action === "delete"
+          ? `${deleteTarget!.type} ${deleteTarget!.value}${
+              deleteTarget!.type === "MX" && deleteTarget!.mxPreference !== undefined
+                ? ` (preference ${deleteTarget!.mxPreference})`
+                : ""
+            }`
+          : "";
 
     const prBody =
       action === "edit"
@@ -317,7 +383,17 @@ Contact: \`${contact}\`
 
 Please review carefully before merging.
 `
-        : `## DNS Editor submission
+        : action === "delete"
+          ? `## DNS Editor submission
+
+Opened by @${session.login} via ${appLink}.
+
+### Delete
+Removing \`${originalPreview}\` under \`${fqdn}\`.
+
+Please review carefully before merging.
+`
+          : `## DNS Editor submission
 
 Opened by @${session.login} via ${appLink}.
 

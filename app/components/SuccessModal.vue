@@ -50,12 +50,6 @@ const emit = defineEmits<{ close: [] }>();
             </template>
           </p>
 
-          <p v-if="viaApp && !needsManualPr" class="text-xs text-muted">
-            Opened as you
-            <span class="text-snow">with {{ viaApp }}</span>
-            (native GitHub App attribution).
-          </p>
-
           <div class="mt-4 flex gap-2">
             <a
               v-if="prUrl"

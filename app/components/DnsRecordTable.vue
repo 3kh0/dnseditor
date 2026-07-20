@@ -10,6 +10,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   edit: [payload: EditPayload];
+  delete: [payload: EditPayload];
 }>();
 
 export interface EditPayload {
@@ -73,26 +74,33 @@ function siteUrl(sub: string, type: string, value: DnsValue) {
   return `https://${prefix}${bare.value}`;
 }
 
-function onEdit(row: Row) {
+function toPayload(row: Row): EditPayload {
   if (row.type === "MX" && isMx(row.value)) {
-    emit("edit", {
+    return {
       subdomain: row.subdomain,
       type: row.type,
       value: row.value.exchange ? String(row.value.exchange) : "",
       ttl: row.ttl,
       mxPreference: Number(row.value.preference ?? row.value.priority ?? 10),
       proxied: row.proxied,
-    });
-    return;
+    };
   }
 
-  emit("edit", {
+  return {
     subdomain: row.subdomain,
     type: row.type,
     value: row.value === "" ? "" : fmtDnsValue(row.value),
     ttl: row.ttl,
     proxied: row.proxied,
-  });
+  };
+}
+
+function onEdit(row: Row) {
+  emit("edit", toPayload(row));
+}
+
+function onDelete(row: Row) {
+  emit("delete", toPayload(row));
 }
 </script>
 
@@ -175,6 +183,15 @@ function onEdit(row: Row) {
                 >
                   <Icon name="material-symbols:edit-outline" size="0.875rem" />
                   Edit
+                </button>
+                <button
+                  type="button"
+                  class="inline-flex cursor-pointer items-center gap-1 text-xs text-muted transition-colors hover:text-red"
+                  title="Delete this record"
+                  @click="onDelete(row)"
+                >
+                  <Icon name="material-symbols:delete-outline" size="0.875rem" />
+                  Delete
                 </button>
                 <a
                   v-if="row.siteUrl"
