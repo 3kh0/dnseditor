@@ -1,5 +1,11 @@
 <script setup lang="ts">
-import { bareDomain, fmtDnsValue } from "#shared/dns";
+import {
+  bareDomain,
+  CNAME_PROVIDER_LABELS,
+  detectCnameProvider,
+  fmtDnsValue,
+  type CnameProvider,
+} from "#shared/dns";
 import type { DnsMxValue, DnsRecordGroup, DnsValue } from "#shared/types/dns";
 
 const props = defineProps<{
@@ -29,6 +35,7 @@ interface Row {
   type: string;
   value: DnsValue;
   proxied?: boolean;
+  provider: CnameProvider | null;
 }
 
 const bare = computed(() => bareDomain(props.domain));
@@ -43,17 +50,13 @@ const rows = computed<Row[]>(() =>
         type: r.type,
         value,
         proxied: r.proxied,
+        provider: detectCnameProvider(r.type, value),
       })),
     ),
   ),
 );
 
 const isMx = (v: DnsValue): v is DnsMxValue => typeof v === "object" && v !== null;
-
-const isVercel = (type: string, v: DnsValue) =>
-  (type === "CNAME" || type === "ALIAS") &&
-  typeof v === "string" &&
-  v.includes("cname.vercel-dns.com.");
 
 const displayName = (sub: string) => (!sub || sub === "@" ? bare.value : `${sub}.${bare.value}`);
 
@@ -156,11 +159,24 @@ function onDelete(row: Row) {
               </template>
 
               <span
-                v-else-if="isVercel(row.type, row.value)"
+                v-else-if="row.provider"
                 class="inline-flex items-center gap-1.5 text-snow"
               >
-                <Icon name="simple-icons:vercel" size="0.875rem" />
-                Vercel
+                <Icon
+                  v-if="row.provider === 'vercel'"
+                  name="simple-icons:vercel"
+                  size="0.875rem"
+                  class="shrink-0"
+                />
+                <span
+                  v-else-if="row.provider === 'coolify-a' || row.provider === 'coolify-b'"
+                  class="flex size-4 shrink-0 items-center justify-center rounded-full bg-primary/25 text-[10px] font-bold leading-none text-primary"
+                  aria-hidden="true"
+                >
+                  {{ row.provider === "coolify-a" ? "A" : "B" }}
+                </span>
+                <OrchardIcon v-else-if="row.provider === 'orchard'" />
+                {{ CNAME_PROVIDER_LABELS[row.provider] }}
               </span>
 
               <span

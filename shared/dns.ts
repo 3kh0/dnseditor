@@ -36,7 +36,40 @@ export const isObj = (v: unknown): v is Record<string, unknown> =>
 
 export const fmtDnsValue = (v: unknown) => (typeof v === "object" ? JSON.stringify(v) : String(v));
 
-/** Zones managed via Cloudflare in octodns (proxy toggle available). */
+export type CnameProvider = "vercel" | "coolify-a" | "coolify-b" | "orchard";
+
+export const CNAME_PROVIDER_LABELS: Record<CnameProvider, string> = {
+  vercel: "Vercel",
+  "coolify-a": "Coolify A",
+  "coolify-b": "Coolify B",
+  orchard: "Orchard",
+};
+
+export function detectCnameProvider(type: string, value: unknown): CnameProvider | null {
+  if ((type !== "CNAME" && type !== "ALIAS") || typeof value !== "string") return null;
+  const v = value.trim().replace(/\.$/, "").toLowerCase();
+  if (!v) return null;
+
+  if (v.includes("vercel-dns")) return "vercel";
+
+  if (v === "a.ingress.tier2.infra.hackclub.com") return "orchard";
+
+  if (
+    v === "b.selfhosted.hackclub.com" ||
+    /^b(\.[a-z0-9-]+)*\.selfhosted\.hackclub\.com$/.test(v)
+  ) {
+    return "coolify-b";
+  }
+  if (
+    v === "a.selfhosted.hackclub.com" ||
+    /^a(\.[a-z0-9-]+)*\.selfhosted\.hackclub\.com$/.test(v)
+  ) {
+    return "coolify-a";
+  }
+
+  return null;
+}
+
 export const CF_PROXY_DOMAINS = new Set(["hackclub.com.yaml"]);
 
 /** Record types Cloudflare can orange-cloud proxy. */
