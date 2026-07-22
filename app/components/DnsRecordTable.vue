@@ -158,10 +158,7 @@ function onDelete(row: Row) {
                 <span v-else class="text-yellow">Invalid Exchange</span>
               </template>
 
-              <span
-                v-else-if="row.provider"
-                class="inline-flex items-center gap-1.5 text-snow"
-              >
+              <span v-else-if="row.provider" class="inline-flex items-center gap-1.5 text-snow">
                 <Icon
                   v-if="row.provider === 'vercel'"
                   name="simple-icons:vercel"
