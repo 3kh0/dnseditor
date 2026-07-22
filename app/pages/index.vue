@@ -80,7 +80,7 @@ const {
   data: records,
   error,
   status,
-} = await useFetch<DnsRecordGroup[]>(() => `/api/domains/${selectedDomain.value}`, {
+} = useLazyFetch<DnsRecordGroup[]>(() => `/api/domains/${selectedDomain.value}`, {
   default: () => [],
   watch: [selectedDomain],
 });
