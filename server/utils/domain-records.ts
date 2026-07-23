@@ -11,12 +11,16 @@ export const getDomainRecords = defineCachedFunction(
       `https://raw.githubusercontent.com/hackclub/dns/refs/heads/main/${domain}`,
       { responseType: "text" },
     );
-    const doc = YAML.parse(source);
+    const parsed = YAML.parseDocument(source);
+    const doc = parsed.toJS();
     if (!isObj(doc)) throw new TypeError("The DNS file does not contain a YAML object");
+
+    const contacts = contactsBySubdomain(parsed);
 
     return Object.entries(doc).map(([subdomain, entry]) => ({
       subdomain,
       records: normalizeList(entry),
+      ...(contacts.get(subdomain) ? { contact: contacts.get(subdomain) } : {}),
     }));
   },
   {
@@ -27,6 +31,24 @@ export const getDomainRecords = defineCachedFunction(
     getKey: (domain) => domain,
   },
 );
+
+function contactsBySubdomain(doc: YAML.Document): Map<string, string> {
+  const contacts = new Map<string, string>();
+  const contents = doc.contents;
+  if (!YAML.isMap(contents)) return contacts;
+
+  for (const pair of contents.items) {
+    const key = YAML.isScalar(pair.key) ? String(pair.key.value) : String(pair.key);
+    const value = pair.value;
+    const raw =
+      (YAML.isNode(value) ? value.commentBefore : undefined) ??
+      (YAML.isScalar(pair.key) ? pair.key.comment : undefined) ??
+      (YAML.isNode(value) ? value.comment : undefined);
+    const contact = raw?.split("\n")[0]?.trim();
+    if (contact) contacts.set(key, contact);
+  }
+  return contacts;
+}
 
 const normalizeList = (entry: unknown): DnsRecord[] =>
   (Array.isArray(entry) ? entry : [entry]).filter(isObj).map(normalizeRecord);

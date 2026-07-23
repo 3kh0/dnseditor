@@ -21,6 +21,7 @@ import {
 import {
   createBranchOnFork,
   createUserOctokit,
+  forceRefreshSession,
   formatCommitMessageWithBotCoAuthor,
   getAppBotIdentity,
   getInstallUrl,
@@ -206,9 +207,7 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  const octokit = createUserOctokit(session.accessToken);
-
-  try {
+  const attempt = async (octokit: Octokit) => {
     const fork = await requireUserFork(octokit, session.login, upstream.owner, upstream.repo);
     console.log(
       `[submit] ${session.login} ${action} ${domain} → fork ${fork.fullName} → PR ${upstream.owner}/${upstream.repo}`,
@@ -470,11 +469,13 @@ Please review carefully before merging.
           "(so GitHub will not show the app badge). Open it in the browser to finish.",
       };
     }
-  } catch (error) {
+  };
+
+  const failed = (error: unknown): never => {
     if (error && typeof error === "object" && "statusCode" in error) throw error;
     if (isIntegrationAccessError(error)) {
       console.warn(
-        `[submit] APP_INSTALL_REQUIRED for ${session.login} on ${domain}: app lacks contents:write on the fork (${githubErrorMessage(error)})`,
+        `[submit] APP_INSTALL_REQUIRED for ${session.login} on ${domain} (persisted after token refresh): ${githubErrorMessage(error)}`,
       );
       throw createError({
         statusCode: 403,
@@ -496,6 +497,25 @@ Please review carefully before merging.
       message: `Failed to create pull request: ${githubErrorMessage(error)}`,
       data: { detail: githubErrorMessage(error) },
     });
+  };
+
+  try {
+    return await attempt(createUserOctokit(session.accessToken));
+  } catch (error) {
+    if (isIntegrationAccessError(error) && session.refreshToken) {
+      const refreshed = await forceRefreshSession(event, session);
+      if (refreshed) {
+        console.warn(
+          `[submit] integration 403 for ${session.login}; refreshed user token and retrying push`,
+        );
+        try {
+          return await attempt(createUserOctokit(refreshed.accessToken));
+        } catch (retryError) {
+          return failed(retryError);
+        }
+      }
+    }
+    return failed(error);
   }
 });
 

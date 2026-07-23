@@ -26,6 +26,7 @@ export interface EditPayload {
   ttl?: number;
   mxPreference?: number;
   proxied?: boolean;
+  contact?: string;
 }
 
 interface Row {
@@ -36,6 +37,7 @@ interface Row {
   value: DnsValue;
   proxied?: boolean;
   provider: CnameProvider | null;
+  contact?: string;
 }
 
 const bare = computed(() => bareDomain(props.domain));
@@ -51,6 +53,7 @@ const rows = computed<Row[]>(() =>
         value,
         proxied: r.proxied,
         provider: detectCnameProvider(r.type, value),
+        contact: g.contact,
       })),
     ),
   ),
@@ -86,6 +89,7 @@ function toPayload(row: Row): EditPayload {
       ttl: row.ttl,
       mxPreference: Number(row.value.preference ?? row.value.priority ?? 10),
       proxied: row.proxied,
+      contact: row.contact,
     };
   }
 
@@ -95,6 +99,7 @@ function toPayload(row: Row): EditPayload {
     value: row.value === "" ? "" : fmtDnsValue(row.value),
     ttl: row.ttl,
     proxied: row.proxied,
+    contact: row.contact,
   };
 }
 

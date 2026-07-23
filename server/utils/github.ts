@@ -212,6 +212,27 @@ export async function refreshUserAccessToken(event: H3Event, refreshToken: strin
   });
 }
 
+export async function forceRefreshSession(
+  event: H3Event,
+  session: SessionData,
+): Promise<SessionData | null> {
+  if (!session.refreshToken) return null;
+  try {
+    const r = await refreshUserAccessToken(event, session.refreshToken);
+    const next: SessionData = {
+      ...session,
+      accessToken: r.accessToken,
+      refreshToken: r.refreshToken ?? session.refreshToken,
+      expiresAt: r.expiresIn ? Date.now() + r.expiresIn * 1000 : session.expiresAt,
+    };
+    setAppSessionCookie(event, next);
+    return next;
+  } catch (e) {
+    console.warn(`[auth] force token refresh failed: ${githubErrorMessage(e)}`);
+    return null;
+  }
+}
+
 export async function requireUserSession(event: H3Event): Promise<SessionData> {
   const session = getAppSession(event);
   if (!session) {

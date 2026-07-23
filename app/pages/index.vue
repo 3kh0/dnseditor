@@ -28,6 +28,7 @@ export interface EditingRecord {
   ttl?: number;
   mxPreference?: number;
   proxied?: boolean;
+  contact?: string;
 }
 
 const editingRecord = ref<EditingRecord | null>(null);

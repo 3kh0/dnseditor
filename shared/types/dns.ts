@@ -17,4 +17,5 @@ export interface DnsRecord {
 export interface DnsRecordGroup {
   records: DnsRecord[];
   subdomain: string;
+  contact?: string;
 }

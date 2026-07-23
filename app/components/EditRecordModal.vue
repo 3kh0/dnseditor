@@ -8,6 +8,7 @@ export interface EditingRecord {
   ttl?: number;
   mxPreference?: number;
   proxied?: boolean;
+  contact?: string;
 }
 
 const props = withDefaults(
@@ -334,7 +335,7 @@ function applyEditing(rec: EditingRecord) {
     type: rec.type,
     value: rec.value,
     ttl: rec.ttl ?? "",
-    contact: loadContact(),
+    contact: rec.contact?.trim() || loadContact(),
     mxPreference: rec.mxPreference ?? 10,
     proxied: rec.proxied === true,
   };
