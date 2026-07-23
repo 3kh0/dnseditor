@@ -41,6 +41,13 @@ const modalPanel = ref<HTMLElement | null>(null);
 const error = ref<string | null>(null);
 const submissionErrorCode = ref<string | null>(null);
 const submissionInstallUrl = ref<string | null>(null);
+
+interface AppAccess {
+  accessible: boolean;
+  installed: boolean;
+  manageUrl: string | null;
+}
+const appAccess = ref<AppAccess | null>(null);
 const appInstallNotice = ref<string | null>(null);
 const awaitingAppInstall = ref(false);
 const checkingAppInstall = ref(false);
@@ -198,7 +205,21 @@ const canSubmit = computed(
 const defaultManualForkUrl = computed(
   () => manualForkUrl.value || `https://github.com/${upstreamLabel.value}/fork`,
 );
-const appInstallUrl = computed(() => submissionInstallUrl.value || installUrl.value);
+const appInstallUrl = computed(
+  () => appAccess.value?.manageUrl || submissionInstallUrl.value || installUrl.value,
+);
+
+const appAccessBlocked = computed(
+  () =>
+    !!appAccess.value &&
+    !appAccess.value.accessible &&
+    authenticated.value &&
+    !!fork.value &&
+    !error.value,
+);
+const appAccessActionLabel = computed(() =>
+  appAccess.value?.installed ? "Add your fork to the app" : "Install GitHub App",
+);
 
 const modalTitle = computed(() =>
   isDelete.value ? "Delete record" : isEdit.value ? "Edit record" : "Add record",
@@ -227,6 +248,7 @@ watch(
     submissionErrorCode.value = null;
     submissionInstallUrl.value = null;
     appInstallNotice.value = null;
+    appAccess.value = null;
     statusMessage.value = null;
     showAdvanced.value = false;
     deleteFromEdit.value = false;
@@ -240,6 +262,7 @@ watch(
       if (!form.value.contact.trim()) form.value.contact = loadContact();
     }
     await refresh();
+    void checkAppAccess();
   },
 );
 
@@ -389,12 +412,25 @@ async function refreshAfterManualFork() {
     await refresh();
     if (fork.value) {
       statusMessage.value = `Found fork ${fork.value.fullName}`;
+      void checkAppAccess();
     } else {
       statusMessage.value = null;
       error.value = `Still no fork of ${upstreamLabel.value} on your account. Fork it on GitHub, wait a few seconds, then try again.`;
     }
   } finally {
     refreshingFork.value = false;
+  }
+}
+
+async function checkAppAccess() {
+  if (!authenticated.value || !fork.value) {
+    appAccess.value = null;
+    return;
+  }
+  try {
+    appAccess.value = await $fetch<AppAccess>("/api/auth/app-access");
+  } catch {
+    appAccess.value = null;
   }
 }
 
@@ -454,7 +490,8 @@ async function refreshAfterAppInstall() {
 
   try {
     await refresh();
-    const access = await $fetch<{ accessible: boolean }>("/api/auth/app-access");
+    const access = await $fetch<AppAccess>("/api/auth/app-access");
+    appAccess.value = access;
     if (access.accessible) {
       error.value = null;
       submissionErrorCode.value = null;
@@ -711,6 +748,30 @@ const valuePlaceholder = computed(() => {
             {{ appInstallNotice }}
           </div>
 
+          <div
+            v-if="appAccessBlocked"
+            class="rounded-lg border border-red/20 bg-red/10 p-3 text-sm text-red"
+          >
+            <p v-if="appAccess?.installed">
+              The GitHub App is installed but can't push to your fork
+              <code class="text-snow">{{ fork?.fullName }}</code
+              >. Add your fork to the app's repositories, then submit.
+            </p>
+            <p v-else>
+              The GitHub App isn't set up to push to your fork yet. Install it on your account so it
+              can open the pull request.
+            </p>
+            <button
+              v-if="appInstallUrl"
+              type="button"
+              class="mt-3 inline-flex rounded-lg bg-primary px-3 py-1.5 font-medium text-white transition-colors hover:bg-primary/85"
+              :disabled="awaitingAppInstall || checkingAppInstall"
+              @click="openAppInstall"
+            >
+              {{ checkingAppInstall ? "Checking access…" : appAccessActionLabel }}
+            </button>
+          </div>
+
           <div v-if="error" class="rounded-lg border border-red/20 bg-red/10 p-3 text-sm text-red">
             <p>{{ error }}</p>
             <button
@@ -720,7 +781,7 @@ const valuePlaceholder = computed(() => {
               :disabled="awaitingAppInstall || checkingAppInstall"
               @click="openAppInstall"
             >
-              {{ checkingAppInstall ? "Checking access…" : "Install GitHub App" }}
+              {{ checkingAppInstall ? "Checking access…" : appAccessActionLabel }}
             </button>
           </div>
 

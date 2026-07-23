@@ -210,6 +210,9 @@ export default defineEventHandler(async (event) => {
 
   try {
     const fork = await requireUserFork(octokit, session.login, upstream.owner, upstream.repo);
+    console.log(
+      `[submit] ${session.login} ${action} ${domain} → fork ${fork.fullName} → PR ${upstream.owner}/${upstream.repo}`,
+    );
     const { content, sha } = await readRepoFile(
       octokit,
       upstream.owner,
@@ -449,9 +452,14 @@ Please review carefully before merging.
         /* non-fatal */
       }
 
+      console.log(
+        `[submit] PR opened for ${session.login}: ${pr.html_url} (branch ${branch}, viaApp=${viaApp ?? "none"})`,
+      );
       return { ...basePayload, prUrl: pr.html_url, needsManualPr: false, viaApp };
     } catch (prError) {
-      console.warn("pulls.create failed, returning compare URL:", githubErrorMessage(prError));
+      console.warn(
+        `[submit] pulls.create failed for ${session.login} (fork ${fork.fullName}, branch ${branch}), returning compare URL: ${githubErrorMessage(prError)}`,
+      );
       return {
         ...basePayload,
         prUrl: compareUrl,
@@ -465,6 +473,9 @@ Please review carefully before merging.
   } catch (error) {
     if (error && typeof error === "object" && "statusCode" in error) throw error;
     if (isIntegrationAccessError(error)) {
+      console.warn(
+        `[submit] APP_INSTALL_REQUIRED for ${session.login} on ${domain}: app lacks contents:write on the fork (${githubErrorMessage(error)})`,
+      );
       throw createError({
         statusCode: 403,
         message:
@@ -475,7 +486,11 @@ Please review carefully before merging.
         },
       });
     }
-    console.error("GitHub API error:", error);
+    console.error(
+      `[submit] GitHub API error for ${session.login} on ${action} ${domain}:`,
+      githubErrorMessage(error),
+      error,
+    );
     throw createError({
       statusCode: 500,
       message: `Failed to create pull request: ${githubErrorMessage(error)}`,

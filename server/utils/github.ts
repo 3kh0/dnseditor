@@ -82,6 +82,9 @@ export function getInstallUrl(event: H3Event): string | null {
 export const getManualForkUrl = (owner: string, repo: string) =>
   `https://github.com/${owner}/${repo}/fork`;
 
+export const getInstallationManageUrl = (installationId: number) =>
+  `https://github.com/settings/installations/${installationId}`;
+
 export async function getAppBotIdentity(
   octokit: Octokit,
   event: H3Event,
@@ -376,8 +379,15 @@ export async function syncForkWithUpstream(octokit: Octokit, fork: ForkInfo, bra
       repo: fork.repo,
       branch,
     });
+    console.log(`[sync] merge-upstream ok for ${fork.fullName}#${branch}`);
   } catch (e) {
-    console.warn("Fork sync skipped/failed:", githubErrorMessage(e));
+    const status =
+      typeof e === "object" && e !== null && "status" in e
+        ? (e as { status?: number }).status
+        : undefined;
+    console.warn(
+      `[sync] merge-upstream skipped/failed for ${fork.fullName}#${branch} (status ${status ?? "?"}): ${githubErrorMessage(e)}`,
+    );
   }
 }
 
