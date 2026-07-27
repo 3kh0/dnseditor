@@ -47,6 +47,7 @@ interface AppAccess {
   accessible: boolean;
   installed: boolean;
   manageUrl: string | null;
+  missingPermissions: string[];
 }
 const appAccess = ref<AppAccess | null>(null);
 const appInstallNotice = ref<string | null>(null);
@@ -200,7 +201,12 @@ const hasChanges = computed(() => {
 const needsManualFork = computed(() => authenticated.value && !authPending.value && !fork.value);
 const canSubmit = computed(
   () =>
-    isValid.value && !sending.value && !refreshingFork.value && authenticated.value && !!fork.value,
+    isValid.value &&
+    !sending.value &&
+    !refreshingFork.value &&
+    authenticated.value &&
+    !!fork.value &&
+    appAccess.value?.accessible !== false,
 );
 
 const defaultManualForkUrl = computed(
@@ -218,8 +224,15 @@ const appAccessBlocked = computed(
     !!fork.value &&
     !error.value,
 );
+const missingWorkflowsPermission = computed(() =>
+  appAccess.value?.missingPermissions.includes("workflows"),
+);
 const appAccessActionLabel = computed(() =>
-  appAccess.value?.installed ? "Add your fork to the app" : "Install GitHub App",
+  missingWorkflowsPermission.value
+    ? "Review app permissions"
+    : appAccess.value?.installed
+      ? "Add your fork to the app"
+      : "Install GitHub App",
 );
 
 const modalTitle = computed(() =>
@@ -499,6 +512,9 @@ async function refreshAfterAppInstall() {
       submissionInstallUrl.value = null;
       appInstallNotice.value =
         "GitHub App access is ready. Your changes are still here—open the pull request again.";
+    } else if (access.missingPermissions.includes("workflows")) {
+      error.value =
+        "The GitHub App still needs read and write access to workflows. Approve the new permission on GitHub, then return here.";
     } else {
       error.value =
         "The GitHub App still cannot access your fork. Update the installation and select your DNS fork, then return here.";
@@ -612,9 +628,11 @@ async function submit() {
           ? "Your session is not a GitHub App user token (ghu_). Sign out and sign in again with the GitHub App."
           : code === "FORK_REQUIRED"
             ? `You need a fork of ${upstreamLabel.value} on your account first.`
-            : code === "APP_INSTALL_REQUIRED"
-              ? "The GitHub App needs access to your fork before it can push this change."
-              : errMsg(err);
+            : code === "APP_WORKFLOWS_PERMISSION_REQUIRED"
+              ? "The GitHub App needs read and write access to workflows before it can sync your fork."
+              : code === "APP_INSTALL_REQUIRED"
+                ? "The GitHub App needs access to your fork before it can push this change."
+                : errMsg(err);
     statusMessage.value = null;
     await nextTick();
     modalPanel.value?.scrollTo({ top: 0 });
@@ -753,7 +771,11 @@ const valuePlaceholder = computed(() => {
             v-if="appAccessBlocked"
             class="rounded-lg border border-red/20 bg-red/10 p-3 text-sm text-red"
           >
-            <p v-if="appAccess?.installed">
+            <p v-if="missingWorkflowsPermission">
+              The GitHub App is installed but does not have read and write access to workflows.
+              Approve the new permission on GitHub before submitting.
+            </p>
+            <p v-else-if="appAccess?.installed">
               The GitHub App is installed but can't push to your fork
               <code class="text-snow">{{ fork?.fullName }}</code
               >. Add your fork to the app's repositories, then submit.
@@ -776,7 +798,11 @@ const valuePlaceholder = computed(() => {
           <div v-if="error" class="rounded-lg border border-red/20 bg-red/10 p-3 text-sm text-red">
             <p>{{ error }}</p>
             <button
-              v-if="submissionErrorCode === 'APP_INSTALL_REQUIRED' && appInstallUrl"
+              v-if="
+                (submissionErrorCode === 'APP_INSTALL_REQUIRED' ||
+                  submissionErrorCode === 'APP_WORKFLOWS_PERMISSION_REQUIRED') &&
+                appInstallUrl
+              "
               type="button"
               class="mt-3 inline-flex rounded-lg bg-primary px-3 py-1.5 font-medium text-white transition-colors hover:bg-primary/85"
               :disabled="awaitingAppInstall || checkingAppInstall"

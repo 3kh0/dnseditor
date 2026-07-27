@@ -409,6 +409,14 @@ export async function syncForkWithUpstream(octokit: Octokit, fork: ForkInfo, bra
     console.warn(
       `[sync] merge-upstream skipped/failed for ${fork.fullName}#${branch} (status ${status ?? "?"}): ${githubErrorMessage(e)}`,
     );
+    if (/without [`']?workflows[`']? permission/i.test(githubErrorMessage(e))) {
+      throw createError({
+        statusCode: 403,
+        message:
+          "The GitHub App needs read and write access to workflows before it can sync your fork.",
+        data: { code: "APP_WORKFLOWS_PERMISSION_REQUIRED" },
+      });
+    }
   }
 }
 

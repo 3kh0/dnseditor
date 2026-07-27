@@ -12,6 +12,7 @@ interface AppAccess {
   accessible: boolean;
   installed: boolean;
   manageUrl: string | null;
+  missingPermissions: string[];
 }
 
 export default defineEventHandler(async (event): Promise<AppAccess> => {
@@ -26,7 +27,7 @@ export default defineEventHandler(async (event): Promise<AppAccess> => {
     console.log(
       `[app-access] ${session.login}: ${!fork ? "no fork found" : "app slug not configured"}`,
     );
-    return { accessible: false, installed: false, manageUrl: installUrl };
+    return { accessible: false, installed: false, manageUrl: installUrl, missingPermissions: [] };
   }
 
   const { data } = await octokit.apps.listInstallationsForAuthenticatedUser({ per_page: 100 });
@@ -40,16 +41,20 @@ export default defineEventHandler(async (event): Promise<AppAccess> => {
 
   if (!installation) {
     console.log(`[app-access] ${session.login}: app not installed on ${fork.owner}`);
-    return { accessible: false, installed: false, manageUrl: installUrl };
+    return { accessible: false, installed: false, manageUrl: installUrl, missingPermissions: [] };
   }
 
   const manageUrl = getInstallationManageUrl(installation.id);
+  const missingPermissions = [
+    ...(installation.permissions?.contents === "write" ? [] : ["contents"]),
+    ...(installation.permissions?.workflows === "write" ? [] : ["workflows"]),
+  ];
 
-  if (installation.permissions?.contents !== "write") {
+  if (missingPermissions.length) {
     console.log(
-      `[app-access] ${session.login}: installation ${installation.id} lacks contents:write (has "${installation.permissions?.contents ?? "none"}")`,
+      `[app-access] ${session.login}: installation ${installation.id} lacks write access to ${missingPermissions.join(", ")}`,
     );
-    return { accessible: false, installed: true, manageUrl };
+    return { accessible: false, installed: true, manageUrl, missingPermissions };
   }
 
   const repositories = await octokit.paginate(
@@ -64,5 +69,5 @@ export default defineEventHandler(async (event): Promise<AppAccess> => {
     `[app-access] ${session.login}: installation ${installation.id}, ${accessible ? "covers" : "does NOT cover"} fork ${fork.fullName} (${repositories.length} repos granted)`,
   );
 
-  return { accessible, installed: true, manageUrl };
+  return { accessible, installed: true, manageUrl, missingPermissions: [] };
 });

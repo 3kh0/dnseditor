@@ -8,9 +8,15 @@ This project uses [Bun](https://bun.sh/):
 
 ```bash
 bun install
-cp .env.example .env   # then fill in GITHUB_TOKEN
+cp .env.example .env   # then fill in the GitHub App credentials
 bun run dev
 ```
+
+The GitHub App needs these repository permissions:
+
+- **Contents:** Read and write
+- **Pull requests:** Read and write
+- **Workflows:** Read and write
 
 ## Live demo
 
