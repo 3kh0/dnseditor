@@ -190,7 +190,18 @@ function onDelete(row: Row) {
               </span>
               <span v-else>No value</span>
             </td>
-            <td class="px-4 py-2.5 whitespace-nowrap text-muted">{{ row.ttl ?? "Auto" }}</td>
+            <td class="px-4 py-2.5 whitespace-nowrap text-muted">
+              <span class="inline-flex items-center gap-1.5">
+                <Icon
+                  v-if="domain === 'hackclub.com.yaml' && row.proxied && row.ttl === undefined"
+                  name="simple-icons:cloudflare"
+                  size="0.875rem"
+                  class="shrink-0 text-orange"
+                  title="Proxied through Cloudflare"
+                />
+                {{ row.ttl ?? "Auto" }}
+              </span>
+            </td>
             <td class="px-4 py-2.5 text-right">
               <div class="inline-flex items-center justify-end gap-2">
                 <button
