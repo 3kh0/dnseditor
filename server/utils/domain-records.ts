@@ -5,32 +5,31 @@ import type { DnsMxValue, DnsRecord, DnsRecordGroup, DnsValue } from "#shared/ty
 export const DOMAIN_CACHE_MAX_AGE = 60;
 export const DOMAIN_CACHE_STALE_MAX_AGE = 3600;
 
-export const getDomainRecords = defineCachedFunction(
-  async (domain: string): Promise<DnsRecordGroup[]> => {
-    const source = await $fetch<string>(
-      `https://raw.githubusercontent.com/hackclub/dns/refs/heads/main/${domain}`,
-      { responseType: "text" },
-    );
-    const parsed = YAML.parseDocument(source);
-    const doc = parsed.toJS();
-    if (!isObj(doc)) throw new TypeError("The DNS file does not contain a YAML object");
+export async function fetchDomainRecords(domain: string): Promise<DnsRecordGroup[]> {
+  const source = await $fetch<string>(
+    `https://raw.githubusercontent.com/hackclub/dns/refs/heads/main/${domain}?t=${Date.now()}`,
+    { responseType: "text" },
+  );
+  const parsed = YAML.parseDocument(source);
+  const doc = parsed.toJS();
+  if (!isObj(doc)) throw new TypeError("The DNS file does not contain a YAML object");
 
-    const contacts = contactsBySubdomain(parsed);
+  const contacts = contactsBySubdomain(parsed);
 
-    return Object.entries(doc).map(([subdomain, entry]) => ({
-      subdomain,
-      records: normalizeList(entry),
-      ...(contacts.get(subdomain) ? { contact: contacts.get(subdomain) } : {}),
-    }));
-  },
-  {
-    name: "domain-records",
-    maxAge: DOMAIN_CACHE_MAX_AGE,
-    swr: true,
-    staleMaxAge: DOMAIN_CACHE_STALE_MAX_AGE,
-    getKey: (domain) => domain,
-  },
-);
+  return Object.entries(doc).map(([subdomain, entry]) => ({
+    subdomain,
+    records: normalizeList(entry),
+    ...(contacts.get(subdomain) ? { contact: contacts.get(subdomain) } : {}),
+  }));
+}
+
+export const getDomainRecords = defineCachedFunction(fetchDomainRecords, {
+  name: "domain-records",
+  maxAge: DOMAIN_CACHE_MAX_AGE,
+  swr: true,
+  staleMaxAge: DOMAIN_CACHE_STALE_MAX_AGE,
+  getKey: (domain) => domain,
+});
 
 function contactsBySubdomain(doc: YAML.Document): Map<string, string> {
   const contacts = new Map<string, string>();

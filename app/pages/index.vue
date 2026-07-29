@@ -81,7 +81,7 @@ const {
   data: records,
   error,
   status,
-} = useLazyFetch<DnsRecordGroup[]>(() => `/api/domains/${selectedDomain.value}`, {
+} = useFetch<DnsRecordGroup[]>(() => `/api/domains/${selectedDomain.value}`, {
   default: () => [],
   watch: [selectedDomain],
 });

@@ -1,8 +1,9 @@
-import { isDomainFile } from "#shared/dns";
+import { DEFAULT_DOMAIN, isDomainFile } from "#shared/dns";
 import type { DnsRecordGroup } from "#shared/types/dns";
 import {
   DOMAIN_CACHE_MAX_AGE,
   DOMAIN_CACHE_STALE_MAX_AGE,
+  fetchDomainRecords,
   getDomainRecords,
 } from "../../utils/domain-records";
 
@@ -12,14 +13,17 @@ export default defineEventHandler(async (event): Promise<DnsRecordGroup[]> => {
     throw createError({ statusCode: 404, statusMessage: "Unknown domain" });
   }
 
+  const isDefaultDomain = domain === DEFAULT_DOMAIN;
   setResponseHeader(
     event,
     "Cache-Control",
-    `public, max-age=${DOMAIN_CACHE_MAX_AGE}, s-maxage=600, stale-while-revalidate=${DOMAIN_CACHE_STALE_MAX_AGE}`,
+    isDefaultDomain
+      ? "no-store"
+      : `public, max-age=${DOMAIN_CACHE_MAX_AGE}, s-maxage=600, stale-while-revalidate=${DOMAIN_CACHE_STALE_MAX_AGE}`,
   );
 
   try {
-    return await getDomainRecords(domain);
+    return await (isDefaultDomain ? fetchDomainRecords(domain) : getDomainRecords(domain));
   } catch (e) {
     console.error(`Failed to load ${domain}`, e);
     throw createError({
