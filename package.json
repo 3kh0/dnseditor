@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@iconify-json/icon-park-outline": "^1.2.2",
-    "@iconify-json/material-symbols": "^1.2.87",
+    "@iconify-json/material-symbols": "^1.2.88",
     "@iconify-json/simple-icons": "^1.2.92",
     "@octokit/rest": "^22.0.1",
     "@vercel/speed-insights": "^2.0.0",
