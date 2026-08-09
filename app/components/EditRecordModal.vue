@@ -1,5 +1,12 @@
 <script setup lang="ts">
-import { bareDomain, hasContact, isSubdomain, supportsCfProxy } from "#shared/dns";
+import {
+  bareDomain,
+  hasContact,
+  isSubdomain,
+  recordValueError,
+  selfReferenceError,
+  supportsCfProxy,
+} from "#shared/dns";
 
 export interface EditingRecord {
   subdomain: string;
@@ -148,7 +155,19 @@ watch(
 
 const contactValid = computed(() => hasContact(form.value.contact.trim()));
 
-/** True when the in-progress record fields (everything but contact) form a valid record. */
+const valueError = computed(() => {
+  const { type, value, subdomain } = form.value;
+  const v = value.trim();
+  if (!v) return null;
+  return recordValueError(type, v) ?? selfReferenceError(type, v, subdomain.trim(), props.domain);
+});
+
+const valueFocused = ref(false);
+const valueTouched = ref(false);
+const showValueError = computed(
+  () => !!valueError.value && (valueTouched.value || !valueFocused.value),
+);
+
 const currentRecordValid = computed(() => {
   const { subdomain, value, ttl, type, mxPreference } = form.value;
   const s = subdomain.trim();
@@ -156,6 +175,7 @@ const currentRecordValid = computed(() => {
   if (!s || !v) return false;
   if (ttl !== "" && (!(Number(ttl) > 0) || !Number.isFinite(Number(ttl)))) return false;
   if (!isSubdomain(s)) return false;
+  if (valueError.value) return false;
   if (type === "MX") {
     const pref = Number(mxPreference);
     if (!Number.isFinite(pref) || pref < 0) return false;
@@ -312,6 +332,8 @@ function resetForm() {
   queued.value = [];
   showAdvanced.value = false;
   statusMessage.value = null;
+  valueTouched.value = false;
+  valueFocused.value = false;
 }
 
 function snapshotCurrentRecord(): QueuedRecord {
@@ -335,6 +357,7 @@ function queueCurrentRecord() {
   form.value.ttl = "";
   form.value.mxPreference = 10;
   form.value.proxied = false;
+  valueTouched.value = false;
 }
 
 function removeQueuedRecord(index: number) {
@@ -1028,9 +1051,25 @@ const valuePlaceholder = computed(() => {
                   v-model="form.value"
                   type="text"
                   spellcheck="false"
-                  class="w-full rounded-lg border border-border bg-darker px-3 py-2 text-sm text-snow outline-none placeholder:text-muted/70 focus:border-primary"
+                  class="w-full rounded-lg border bg-darker px-3 py-2 text-sm text-snow outline-none placeholder:text-muted/70"
+                  :class="
+                    showValueError
+                      ? 'border-red/60 focus:border-red'
+                      : 'border-border focus:border-primary'
+                  "
                   :placeholder="valuePlaceholder"
+                  :aria-invalid="showValueError || undefined"
+                  :aria-describedby="showValueError ? 'value-error' : undefined"
+                  @focus="valueFocused = true"
+                  @blur="
+                    valueFocused = false;
+                    valueTouched = true;
+                  "
                 />
+
+                <p v-if="showValueError" id="value-error" class="mt-1.5 text-xs text-red">
+                  {{ valueError }}
+                </p>
 
                 <div
                   v-if="form.type === 'CNAME'"

@@ -6,6 +6,8 @@ import {
   isDomainFile,
   isObj,
   isSubdomain,
+  recordValueError,
+  selfReferenceError,
   supportsCfProxy,
 } from "#shared/dns";
 import {
@@ -95,6 +97,16 @@ function validateRecordInput(domain: string, input: RecordInput, label: string):
   }
   if (!TYPES.has(type)) {
     throw createError({ statusCode: 400, message: `${at}Unsupported record type: ${type}` });
+  }
+
+  const valueError = recordValueError(type, rawValue);
+  if (valueError) {
+    throw createError({ statusCode: 400, message: `${at}${valueError}` });
+  }
+
+  const loopError = selfReferenceError(type, String(rawValue), subdomain, domain);
+  if (loopError) {
+    throw createError({ statusCode: 400, message: `${at}${loopError}` });
   }
 
   const proxied = wantProxy && supportsCfProxy(domain, type);
