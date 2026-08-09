@@ -29,10 +29,26 @@ export default defineEventHandler(async (event) => {
     manualForkUrl,
   };
 
+  setResponseHeader(event, "Cache-Control", "private, no-store");
+
   if (!getAppSession(event)) return empty;
 
+  let s;
   try {
-    const s = await requireUserSession(event);
+    s = await requireUserSession(event);
+  } catch (e) {
+    return { ...empty, error: githubErrorMessage(e) };
+  }
+
+  const signedIn = {
+    authenticated: true as const,
+    user: { login: s.login, name: s.name ?? null, avatarUrl: s.avatarUrl ?? null },
+    upstream: upstreamPayload,
+    installUrl,
+    manualForkUrl,
+  };
+
+  try {
     const fork = await findUserFork(
       createUserOctokit(s.accessToken),
       s.login,
@@ -41,16 +57,16 @@ export default defineEventHandler(async (event) => {
     );
 
     return {
-      authenticated: true as const,
-      user: { login: s.login, name: s.name ?? null, avatarUrl: s.avatarUrl ?? null },
+      ...signedIn,
       fork: fork
         ? { owner: fork.owner, repo: fork.repo, fullName: fork.fullName, htmlUrl: fork.htmlUrl }
         : null,
-      upstream: upstreamPayload,
-      installUrl,
-      manualForkUrl,
     };
   } catch (e) {
-    return { ...empty, error: githubErrorMessage(e) };
+    if (isUnauthorized(e)) return { ...empty, error: githubErrorMessage(e) };
+    return { ...signedIn, fork: null, error: githubErrorMessage(e) };
   }
 });
+
+const isUnauthorized = (e: unknown) =>
+  typeof e === "object" && e !== null && "status" in e && (e as { status: number }).status === 401;

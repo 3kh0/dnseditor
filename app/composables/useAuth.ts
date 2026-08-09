@@ -1,3 +1,5 @@
+import { appendResponseHeader } from "h3";
+
 export interface AuthUser {
   login: string;
   name: string | null;
@@ -29,8 +31,16 @@ export interface AuthState {
 }
 
 export function useAuth() {
+  const ssrEvent = import.meta.server ? useRequestEvent() : null;
+
   const { data, pending, error, refresh } = useFetch<AuthState>("/api/auth/me", {
     key: "auth-me",
+    onResponse({ response }) {
+      if (!ssrEvent) return;
+      for (const cookie of response.headers.getSetCookie()) {
+        appendResponseHeader(ssrEvent, "set-cookie", cookie);
+      }
+    },
     default: () => ({
       authenticated: false,
       user: null,

@@ -1,7 +1,12 @@
 import { Octokit } from "@octokit/rest";
 import type { H3Event } from "h3";
 import type { SessionData } from "./session";
-import { getAppSession, setAppSessionCookie } from "./session";
+import {
+  clearAppSessionCookie,
+  getAppSession,
+  setAppSessionCookie,
+  touchAppSessionCookie,
+} from "./session";
 
 export interface UpstreamRepo {
   owner: string;
@@ -201,15 +206,26 @@ export async function exchangeOAuthCode(event: H3Event, code: string, codeVerifi
   if (codeVerifier) body.code_verifier = codeVerifier;
   return oauthToken(body);
 }
+const inflightRefresh = new Map<string, Promise<Awaited<ReturnType<typeof oauthToken>>>>();
 
 export async function refreshUserAccessToken(event: H3Event, refreshToken: string) {
+  const shared = inflightRefresh.get(refreshToken);
+  if (shared) return shared;
+
   const { clientId, clientSecret } = getGitHubAppConfig(event);
-  return oauthToken({
+  const request = oauthToken({
     client_id: clientId,
     client_secret: clientSecret,
     grant_type: "refresh_token",
     refresh_token: refreshToken,
   });
+
+  inflightRefresh.set(refreshToken, request);
+  request.then(
+    () => setTimeout(() => inflightRefresh.delete(refreshToken), 60 * 1000).unref?.(),
+    () => inflightRefresh.delete(refreshToken),
+  );
+  return request;
 }
 
 export async function forceRefreshSession(
@@ -218,19 +234,28 @@ export async function forceRefreshSession(
 ): Promise<SessionData | null> {
   if (!session.refreshToken) return null;
   try {
-    const r = await refreshUserAccessToken(event, session.refreshToken);
-    const next: SessionData = {
-      ...session,
-      accessToken: r.accessToken,
-      refreshToken: r.refreshToken ?? session.refreshToken,
-      expiresAt: r.expiresIn ? Date.now() + r.expiresIn * 1000 : session.expiresAt,
-    };
-    setAppSessionCookie(event, next);
-    return next;
+    return applyRefreshedTokens(
+      event,
+      session,
+      await refreshUserAccessToken(event, session.refreshToken),
+    );
   } catch (e) {
     console.warn(`[auth] force token refresh failed: ${githubErrorMessage(e)}`);
     return null;
   }
+}
+
+function applyRefreshedTokens(
+  event: H3Event,
+  session: SessionData,
+  tokens: Awaited<ReturnType<typeof oauthToken>>,
+): SessionData {
+  return setAppSessionCookie(event, {
+    ...session,
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken ?? session.refreshToken,
+    expiresAt: tokens.expiresIn ? Date.now() + tokens.expiresIn * 1000 : session.expiresAt,
+  });
 }
 
 export async function requireUserSession(event: H3Event): Promise<SessionData> {
@@ -258,19 +283,16 @@ export async function requireUserSession(event: H3Event): Promise<SessionData> {
     session.expiresAt - Date.now() < 5 * 60 * 1000 &&
     !!session.refreshToken;
 
-  if (!needsRefresh) return session;
+  if (!needsRefresh) return touchAppSessionCookie(event, session);
 
   try {
-    const r = await refreshUserAccessToken(event, session.refreshToken!);
-    const next: SessionData = {
-      ...session,
-      accessToken: r.accessToken,
-      refreshToken: r.refreshToken ?? session.refreshToken,
-      expiresAt: r.expiresIn ? Date.now() + r.expiresIn * 1000 : session.expiresAt,
-    };
-    setAppSessionCookie(event, next);
-    return next;
+    return applyRefreshedTokens(
+      event,
+      session,
+      await refreshUserAccessToken(event, session.refreshToken!),
+    );
   } catch {
+    clearAppSessionCookie(event);
     throw createError({
       statusCode: 401,
       message: "GitHub session expired. Sign in again.",

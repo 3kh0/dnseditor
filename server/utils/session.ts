@@ -3,12 +3,13 @@ import type { H3Event } from "h3";
 
 export const SESSION_COOKIE = "dnseditor_session";
 export const OAUTH_STATE_COOKIE = "dnseditor_oauth_state";
-const MAX_AGE = 60 * 60 * 24 * 30;
+const MAX_AGE = 60 * 60 * 24 * 180;
 
 export interface SessionData {
   accessToken: string;
   refreshToken?: string;
   expiresAt?: number;
+  issuedAt?: number;
   login: string;
   name?: string | null;
   avatarUrl?: string | null;
@@ -79,7 +80,14 @@ export function unsealAppSession(event: H3Event, token: string): SessionData | n
 }
 
 export function setAppSessionCookie(event: H3Event, data: SessionData) {
-  setCookie(event, SESSION_COOKIE, sealAppSession(event, data), cookieOpts(MAX_AGE));
+  const next = { ...data, issuedAt: Date.now() };
+  setCookie(event, SESSION_COOKIE, sealAppSession(event, next), cookieOpts(MAX_AGE));
+  return next;
+}
+
+export function touchAppSessionCookie(event: H3Event, data: SessionData): SessionData {
+  if (data.issuedAt && Date.now() - data.issuedAt < 60 * 60 * 24 * 1000) return data;
+  return setAppSessionCookie(event, data);
 }
 
 export function clearAppSessionCookie(event: H3Event) {

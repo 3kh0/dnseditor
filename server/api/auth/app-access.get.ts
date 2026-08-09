@@ -16,6 +16,7 @@ interface AppAccess {
 }
 
 export default defineEventHandler(async (event): Promise<AppAccess> => {
+  setResponseHeader(event, "Cache-Control", "private, no-store");
   const session = await requireUserSession(event);
   const upstream = getUpstreamRepo(event);
   const appSlug = getGitHubAppConfig(event).appSlug;
