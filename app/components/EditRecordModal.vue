@@ -103,20 +103,29 @@ const cnamePresets = [
     label: "Coolify A",
     value: "a.selfhosted.hackclub.com.",
     icon: "coolify-a" as const,
+    proxyByDefault: true,
   },
   {
     id: "coolify-b",
     label: "Coolify B",
     value: "b.selfhosted.hackclub.com.",
     icon: "coolify-b" as const,
+    proxyByDefault: true,
   },
   {
     id: "orchard",
     label: "Orchard",
     value: "a.ingress.tier2.infra.hackclub.com.",
     icon: "orchard" as const,
+    proxyByDefault: true,
   },
-  { id: "vercel", label: "Vercel", value: "cname.vercel-dns.com.", icon: "vercel" as const },
+  {
+    id: "vercel",
+    label: "Vercel",
+    value: "cname.vercel-dns.com.",
+    icon: "vercel" as const,
+    proxyByDefault: false,
+  },
 ] as const;
 
 const needsHqApproval = computed(() => props.domain !== "dino.icu.yaml");
@@ -379,9 +388,12 @@ function applyEditing(rec: EditingRecord) {
   statusMessage.value = null;
 }
 
-const applyCnamePreset = (v: string) => {
+const applyCnamePreset = (preset: (typeof cnamePresets)[number]) => {
   form.value.type = "CNAME";
-  form.value.value = v;
+  form.value.value = preset.value;
+  if (preset.proxyByDefault && supportsCfProxy(props.domain, "CNAME")) {
+    form.value.proxied = true;
+  }
 };
 
 const isCnamePresetActive = (v: string) => {
@@ -1088,7 +1100,7 @@ const valuePlaceholder = computed(() => {
                         : 'border-border bg-darker text-muted hover:border-muted hover:text-snow'
                     "
                     :title="preset.value"
-                    @click="applyCnamePreset(preset.value)"
+                    @click="applyCnamePreset(preset)"
                   >
                     <span
                       v-if="preset.icon === 'coolify-a' || preset.icon === 'coolify-b'"
