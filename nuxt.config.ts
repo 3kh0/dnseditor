@@ -25,5 +25,5 @@ export default defineNuxtConfig({
     },
   },
 
-  modules: ["@nuxt/icon", "@vercel/speed-insights"],
+  modules: ["@nuxt/icon", "@vercel/speed-insights", "@vercel/analytics"],
 });
