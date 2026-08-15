@@ -8,12 +8,136 @@ body {
   min-width: 320px;
   margin: 0;
   background-color: var(--color-darker);
+  overflow-x: hidden;
+}
+
+body.modal-open {
+  overflow: hidden;
 }
 
 button,
 a,
 input {
   -webkit-tap-highlight-color: transparent;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+:root {
+  --motion-fast: 120ms;
+  --motion-standard: 160ms;
+  --motion-dialog: 200ms;
+  --ease-out-ui: cubic-bezier(0.215, 0.61, 0.355, 1);
+}
+
+.dialog-enter-active,
+.dialog-leave-active {
+  transition: opacity var(--motion-dialog) var(--ease-out-ui);
+}
+
+.dialog-enter-active .dialog-backdrop,
+.dialog-leave-active .dialog-backdrop,
+.dialog-enter-active .dialog-panel,
+.dialog-leave-active .dialog-panel {
+  transition:
+    opacity var(--motion-dialog) var(--ease-out-ui),
+    transform var(--motion-dialog) var(--ease-out-ui);
+  will-change: opacity, transform;
+}
+
+.dialog-enter-from .dialog-backdrop,
+.dialog-leave-to .dialog-backdrop,
+.dialog-enter-from .dialog-panel,
+.dialog-leave-to .dialog-panel {
+  opacity: 0;
+}
+
+.dialog-enter-from .dialog-panel,
+.dialog-leave-to .dialog-panel {
+  transform: translateY(12px);
+}
+
+.domain-menu {
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition:
+    opacity var(--motion-standard) var(--ease-out-ui),
+    transform var(--motion-standard) var(--ease-out-ui),
+    visibility 0s linear var(--motion-standard);
+}
+
+.domain-menu.domain-menu--open {
+  visibility: visible;
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+  transition-delay: 0s;
+}
+
+.notice-enter-active,
+.notice-leave-active,
+.list-enter-active,
+.list-leave-active,
+.fade-enter-active,
+.fade-leave-active {
+  transition:
+    opacity var(--motion-fast) var(--ease-out-ui),
+    transform var(--motion-fast) var(--ease-out-ui);
+}
+
+.notice-enter-from,
+.notice-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+.list-enter-from,
+.list-leave-to {
+  opacity: 0;
+  transform: translateX(-4px);
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+@media (min-width: 640px) {
+  .dialog-enter-from .dialog-panel,
+  .dialog-leave-to .dialog-panel {
+    transform: translateY(6px) scale(0.985);
+  }
+}
+
+@media (min-width: 768px) {
+  .domain-menu {
+    visibility: visible;
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+    transition: none;
+  }
+}
+
+button,
+select,
+input {
+  font: inherit;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition: none !important;
+    animation: none !important;
+  }
 }
 
 @theme {

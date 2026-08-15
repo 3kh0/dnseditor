@@ -43,9 +43,9 @@ const {
 
 const CONTACT_KEY = "dnseditor:contact";
 
-const mode = ref<"menu" | "add" | "edit" | "delete" | null>(null);
+const mode = ref<"add" | "edit" | "delete" | null>(null);
 const deleteFromEdit = ref(false);
-const modalPanel = ref<HTMLElement | null>(null);
+const modalPanel = ref<{ scrollTo: (options?: ScrollToOptions) => void } | null>(null);
 const error = ref<string | null>(null);
 const submissionErrorCode = ref<string | null>(null);
 const submissionInstallUrl = ref<string | null>(null);
@@ -281,7 +281,18 @@ onBeforeUnmount(() => {
   window.removeEventListener("focus", handleAppInstallFocus);
   window.removeEventListener("message", handleAppInstallMessage);
   stopAppInstallPoll();
+  document.body.classList.remove("modal-open");
 });
+
+watch(
+  [() => props.show, showSuccess],
+  ([editorOpen, successOpen]) => {
+    if (import.meta.client) {
+      document.body.classList.toggle("modal-open", editorOpen || successOpen);
+    }
+  },
+  { immediate: true },
+);
 
 watch(
   () => props.show,
@@ -301,7 +312,7 @@ watch(
       mode.value = props.initialMode;
     } else {
       original.value = null;
-      mode.value = "menu";
+      mode.value = "add";
       if (!form.value.contact.trim()) form.value.contact = loadContact();
     }
     await refresh();
@@ -423,16 +434,7 @@ function back() {
     statusMessage.value = null;
     return;
   }
-  if (isEdit.value || isDelete.value) {
-    close();
-    return;
-  }
-  mode.value = "menu";
-  error.value = null;
-  submissionErrorCode.value = null;
-  submissionInstallUrl.value = null;
-  appInstallNotice.value = null;
-  statusMessage.value = null;
+  close();
 }
 
 function startDelete() {
@@ -716,506 +718,472 @@ const valuePlaceholder = computed(() => {
 
 <template>
   <Teleport to="body">
-    <div
-      v-if="show"
-      class="fixed inset-0 z-50 flex items-center justify-center"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="edit-record-title"
-      @keydown.esc="close"
+    <AnimatedModal
+      ref="modalPanel"
+      :show="show"
+      labelledby="edit-record-title"
+      z-class="z-50"
+      panel-class="relative max-h-[calc(100dvh-0.5rem)] w-full max-w-2xl overscroll-contain overflow-y-auto rounded-t-xl border border-border bg-dark p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl sm:mx-4 sm:max-h-[90vh] sm:rounded-xl sm:p-6"
+      @close="close"
     >
-      <button
-        type="button"
-        class="absolute inset-0 bg-darker/80 backdrop-blur-[3px]"
-        aria-label="Close dialog"
-        @click="close"
-      />
-
-      <div
-        ref="modalPanel"
-        class="relative mx-4 max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-border bg-dark p-6 shadow-2xl"
-      >
+      <Transition name="fade">
         <div
           v-if="sending || refreshingFork"
-          class="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-dark/80 backdrop-blur-sm"
+          class="absolute inset-0 z-20 flex items-center justify-center rounded-xl bg-dark/80 backdrop-blur-sm"
         >
           <div class="flex flex-col items-center gap-3 px-4 text-center text-primary">
             <Icon name="material-symbols:progress-activity" size="3em" class="animate-spin" />
             <span class="text-sm text-snow">{{ statusMessage || "Working…" }}</span>
           </div>
         </div>
+      </Transition>
 
-        <div class="mb-5 flex items-center justify-between">
-          <h2 id="edit-record-title" class="text-2xl font-semibold text-snow">{{ modalTitle }}</h2>
-          <button
-            type="button"
-            class="flex size-9 items-center justify-center rounded-lg border border-border text-muted transition-colors hover:border-muted hover:text-snow"
-            aria-label="Close dialog"
-            @click="close"
-          >
-            <Icon name="material-symbols:close-rounded" size="1.25rem" />
-          </button>
-        </div>
+      <div
+        class="sticky -top-4 z-10 -mx-4 mb-5 flex items-center justify-between border-b border-border bg-dark/95 px-4 py-3 backdrop-blur sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:p-0 sm:backdrop-blur-none"
+      >
+        <h2 id="edit-record-title" class="text-xl font-semibold text-snow sm:text-2xl">
+          {{ modalTitle }}
+        </h2>
+        <button
+          type="button"
+          class="flex size-11 items-center justify-center rounded-lg text-muted transition-colors hover:bg-darkless hover:text-snow sm:size-9 sm:border sm:border-border sm:hover:border-muted"
+          aria-label="Close dialog"
+          @click="close"
+        >
+          <Icon name="material-symbols:close-rounded" size="1.25rem" />
+        </button>
+      </div>
 
-        <div v-if="mode === 'menu'" class="space-y-4">
-          <div
-            v-if="needsHqApproval"
-            class="flex gap-2 rounded-lg border border-yellow/20 bg-yellow/10 p-3 text-yellow"
-          >
-            <Icon name="material-symbols:warning" class="mt-0.5 shrink-0" size="1rem" />
-            <p class="text-sm">
-              Hold up! Changes to this domain need HQ approval. Only continue if you already have
-              the green light (or you are testing and will close the PR).
-            </p>
-          </div>
-
-          <button
-            type="button"
-            class="w-full rounded-lg border border-border bg-darker p-4 text-left transition-colors hover:border-primary hover:bg-primary/5"
-            @click="mode = 'add'"
-          >
-            <div class="text-sm font-medium text-snow">Add new record</div>
-            <div class="mt-0.5 text-sm text-muted">Create a new DNS record for this domain</div>
-          </button>
-
-          <p class="text-xs text-muted">
-            This opens a pull request to
-            <code class="text-snow">{{ upstreamLabel }}</code>
-            from a branch on
-            <strong class="font-medium text-snow">your fork</strong>
-            so we don't add temporary branches on the main repo. To change an existing record, use
-            the
-            <strong class="font-medium text-snow">Edit</strong>
-            button on a row in the table.
+      <form
+        v-if="mode === 'add' || mode === 'edit' || mode === 'delete'"
+        class="space-y-4 sm:space-y-5"
+        @submit.prevent="submit"
+      >
+        <div
+          v-if="needsHqApproval && !isEdit && !isDelete"
+          class="flex gap-2 rounded-lg border border-yellow/20 bg-yellow/10 p-3 text-yellow"
+        >
+          <Icon name="material-symbols:warning" class="mt-0.5 shrink-0" size="1rem" />
+          <p class="text-sm">
+            Changes to this domain need HQ approval. Only continue if you already have the green
+            light.
           </p>
         </div>
 
-        <form
-          v-else-if="mode === 'add' || mode === 'edit' || mode === 'delete'"
-          class="space-y-5"
-          @submit.prevent="submit"
+        <div
+          v-if="appInstallNotice"
+          class="rounded-lg border border-green/20 bg-green/10 p-3 text-sm text-green"
         >
-          <div
-            v-if="appInstallNotice"
-            class="rounded-lg border border-green/20 bg-green/10 p-3 text-sm text-green"
-          >
-            {{ appInstallNotice }}
-          </div>
+          {{ appInstallNotice }}
+        </div>
 
-          <div
-            v-if="appAccessBlocked"
-            class="rounded-lg border border-red/20 bg-red/10 p-3 text-sm text-red"
+        <div
+          v-if="appAccessBlocked"
+          class="rounded-lg border border-red/20 bg-red/10 p-3 text-sm text-red"
+        >
+          <p v-if="missingWorkflowsPermission">
+            The GitHub App is installed but does not have read and write access to workflows.
+            Approve the new permission on GitHub before submitting.
+          </p>
+          <p v-else-if="appAccess?.installed">
+            The GitHub App is installed but can't push to your fork
+            <code class="text-snow">{{ fork?.fullName }}</code
+            >. Add your fork to the app's repositories, then submit.
+          </p>
+          <p v-else>
+            The GitHub App isn't set up to push to your fork yet. Install it on your account so it
+            can open the pull request.
+          </p>
+          <button
+            v-if="appInstallUrl"
+            type="button"
+            class="mt-3 inline-flex rounded-lg bg-primary px-3 py-1.5 font-medium text-white transition-colors hover:bg-primary/85"
+            :disabled="awaitingAppInstall || checkingAppInstall"
+            @click="openAppInstall"
           >
-            <p v-if="missingWorkflowsPermission">
-              The GitHub App is installed but does not have read and write access to workflows.
-              Approve the new permission on GitHub before submitting.
-            </p>
-            <p v-else-if="appAccess?.installed">
-              The GitHub App is installed but can't push to your fork
-              <code class="text-snow">{{ fork?.fullName }}</code
-              >. Add your fork to the app's repositories, then submit.
-            </p>
-            <p v-else>
-              The GitHub App isn't set up to push to your fork yet. Install it on your account so it
-              can open the pull request.
+            {{ checkingAppInstall ? "Checking access…" : appAccessActionLabel }}
+          </button>
+        </div>
+
+        <div v-if="error" class="rounded-lg border border-red/20 bg-red/10 p-3 text-sm text-red">
+          <p>{{ error }}</p>
+          <button
+            v-if="
+              (submissionErrorCode === 'APP_INSTALL_REQUIRED' ||
+                submissionErrorCode === 'APP_WORKFLOWS_PERMISSION_REQUIRED') &&
+              appInstallUrl
+            "
+            type="button"
+            class="mt-3 inline-flex rounded-lg bg-primary px-3 py-1.5 font-medium text-white transition-colors hover:bg-primary/85"
+            :disabled="awaitingAppInstall || checkingAppInstall"
+            @click="openAppInstall"
+          >
+            {{ checkingAppInstall ? "Checking access…" : appAccessActionLabel }}
+          </button>
+        </div>
+
+        <div class="rounded-lg border border-border bg-darker p-3 text-sm">
+          <template v-if="authPending">
+            <p class="text-muted">Checking GitHub sign-in…</p>
+          </template>
+
+          <template v-else-if="!authenticated">
+            <p class="text-snow">
+              Sign in with GitHub so the pull request is opened as
+              <strong class="font-medium">you</strong>.
             </p>
             <button
-              v-if="appInstallUrl"
               type="button"
-              class="mt-3 inline-flex rounded-lg bg-primary px-3 py-1.5 font-medium text-white transition-colors hover:bg-primary/85"
-              :disabled="awaitingAppInstall || checkingAppInstall"
-              @click="openAppInstall"
+              class="mt-3 flex cursor-pointer items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-primary/85"
+              @click="startLogin"
             >
-              {{ checkingAppInstall ? "Checking access…" : appAccessActionLabel }}
+              <Icon name="simple-icons:github" size="1rem" />
+              Sign in with GitHub
             </button>
-          </div>
+          </template>
 
-          <div v-if="error" class="rounded-lg border border-red/20 bg-red/10 p-3 text-sm text-red">
-            <p>{{ error }}</p>
-            <button
-              v-if="
-                (submissionErrorCode === 'APP_INSTALL_REQUIRED' ||
-                  submissionErrorCode === 'APP_WORKFLOWS_PERMISSION_REQUIRED') &&
-                appInstallUrl
-              "
-              type="button"
-              class="mt-3 inline-flex rounded-lg bg-primary px-3 py-1.5 font-medium text-white transition-colors hover:bg-primary/85"
-              :disabled="awaitingAppInstall || checkingAppInstall"
-              @click="openAppInstall"
-            >
-              {{ checkingAppInstall ? "Checking access…" : appAccessActionLabel }}
-            </button>
-          </div>
+          <template v-else>
+            <div class="flex items-start gap-2">
+              <img
+                v-if="user?.avatarUrl"
+                :src="user.avatarUrl"
+                :alt="user.login"
+                class="mt-0.5 size-7 rounded-full"
+                width="28"
+                height="28"
+              />
+              <div class="min-w-0 flex-1">
+                <p class="text-snow">
+                  Signed in as
+                  <strong class="font-medium">@{{ user?.login }}</strong>
+                </p>
 
-          <div class="rounded-lg border border-border bg-darker p-3 text-sm">
-            <template v-if="authPending">
-              <p class="text-muted">Checking GitHub sign-in…</p>
-            </template>
+                <p v-if="fork" class="mt-1 text-muted">
+                  Using your fork
+                  <a
+                    :href="fork.htmlUrl"
+                    target="_blank"
+                    rel="noreferrer"
+                    class="text-primary underline-offset-2 hover:underline"
+                  >
+                    {{ fork.fullName }}
+                  </a>
+                  → PR to
+                  <code class="text-snow">{{ upstreamLabel }}</code>
+                </p>
 
-            <template v-else-if="!authenticated">
-              <p class="text-snow">
-                Sign in with GitHub so the pull request is opened as
-                <strong class="font-medium">you</strong>.
-              </p>
-              <button
-                type="button"
-                class="mt-3 flex cursor-pointer items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-primary/85"
-                @click="startLogin"
-              >
-                <Icon name="simple-icons:github" size="1rem" />
-                Sign in with GitHub
-              </button>
-            </template>
-
-            <template v-else>
-              <div class="flex items-start gap-2">
-                <img
-                  v-if="user?.avatarUrl"
-                  :src="user.avatarUrl"
-                  :alt="user.login"
-                  class="mt-0.5 size-7 rounded-full"
-                  width="28"
-                  height="28"
-                />
-                <div class="min-w-0 flex-1">
-                  <p class="text-snow">
-                    Signed in as
-                    <strong class="font-medium">@{{ user?.login }}</strong>
+                <div v-else-if="needsManualFork" class="mt-2 space-y-3">
+                  <p class="text-muted">
+                    We need a fork of
+                    <code class="text-snow">{{ upstreamLabel }}</code>
+                    under your account. Fork it on GitHub (one click), then come back here.
                   </p>
-
-                  <p v-if="fork" class="mt-1 text-muted">
-                    Using your fork
+                  <div class="flex flex-wrap gap-2">
                     <a
-                      :href="fork.htmlUrl"
+                      :href="defaultManualForkUrl"
                       target="_blank"
                       rel="noreferrer"
-                      class="text-primary underline-offset-2 hover:underline"
+                      class="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-primary/85"
                     >
-                      {{ fork.fullName }}
+                      Fork on GitHub
                     </a>
-                    → PR to
-                    <code class="text-snow">{{ upstreamLabel }}</code>
-                  </p>
-
-                  <div v-else-if="needsManualFork" class="mt-2 space-y-3">
-                    <p class="text-muted">
-                      We need a fork of
-                      <code class="text-snow">{{ upstreamLabel }}</code>
-                      under your account. Fork it on GitHub (one click), then come back here.
-                    </p>
-                    <div class="flex flex-wrap gap-2">
-                      <a
-                        :href="defaultManualForkUrl"
-                        target="_blank"
-                        rel="noreferrer"
-                        class="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-primary/85"
-                      >
-                        Fork on GitHub
-                      </a>
-                      <button
-                        type="button"
-                        class="cursor-pointer rounded-lg border border-border px-3 py-1.5 text-sm text-snow transition-colors hover:bg-darkless"
-                        :disabled="refreshingFork"
-                        @click="refreshAfterManualFork"
-                      >
-                        I forked it — refresh
-                      </button>
-                    </div>
-                    <p v-if="installUrl" class="text-xs text-muted">
-                      After forking, if submit fails with a permission error, also
-                      <button
-                        type="button"
-                        class="text-primary underline-offset-2 hover:underline"
-                        @click="openAppInstall"
-                      >
-                        install the app
-                      </button>
-                      on your account so it can push branches to your fork.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </template>
-          </div>
-
-          <div
-            v-if="isDelete"
-            class="flex gap-2 rounded-lg border border-red/20 bg-red/10 p-3 text-red"
-          >
-            <Icon name="material-symbols:warning" class="mt-0.5 shrink-0" size="1rem" />
-            <p class="text-sm">
-              Delete
-              <strong class="font-medium">{{ form.type }}</strong>
-              record
-              <strong class="font-medium">{{ previewName }}</strong>
-              <template v-if="previewValue">
-                → <strong class="font-medium">{{ previewValue }}</strong>
-              </template>
-              ? This opens a pull request to {{ upstreamLabel }} that removes it once merged.
-            </p>
-          </div>
-
-          <template v-if="!isDelete">
-            <div v-if="!isEdit && queued.length > 0">
-              <p class="mb-2 text-sm font-medium text-snow">Queued records ({{ queued.length }})</p>
-              <ul class="space-y-1.5">
-                <li
-                  v-for="(q, i) in queued"
-                  :key="`${q.type}-${q.subdomain}-${q.value}-${i}`"
-                  class="flex items-center gap-2 rounded-lg border border-border bg-darker px-3 py-2 text-sm"
-                >
-                  <span
-                    class="shrink-0 rounded bg-primary/15 px-1.5 py-0.5 text-xs font-semibold text-primary"
-                  >
-                    {{ q.type }}
-                  </span>
-                  <span class="shrink-0 truncate text-snow">{{ q.subdomain }}.{{ bare }}</span>
-                  <Icon
-                    name="material-symbols:arrow-right-alt"
-                    size="1rem"
-                    class="shrink-0 text-muted"
-                  />
-                  <span class="min-w-0 flex-1 truncate text-muted" :title="q.value">
-                    {{ q.value }}
-                  </span>
-                  <span
-                    v-if="q.proxied"
-                    class="shrink-0 rounded bg-orange/15 px-1.5 py-0.5 text-xs text-orange"
-                  >
-                    Proxied
-                  </span>
-                  <span
-                    v-if="q.ttl !== undefined"
-                    class="shrink-0 rounded bg-steel/40 px-1.5 py-0.5 text-xs text-muted"
-                  >
-                    TTL {{ q.ttl }}
-                  </span>
-                  <button
-                    type="button"
-                    class="flex size-6 shrink-0 items-center justify-center rounded text-muted transition-colors hover:bg-darkless hover:text-snow"
-                    :aria-label="`Remove queued ${q.type} record for ${q.subdomain}.${bare}`"
-                    @click="removeQueuedRecord(i)"
-                  >
-                    <Icon name="material-symbols:close-rounded" size="1rem" />
-                  </button>
-                </li>
-              </ul>
-              <p class="mt-2 text-xs text-muted">
-                All queued records go into a single pull request.
-              </p>
-            </div>
-
-            <p
-              v-if="isEdit || queued.length === 0 || currentCountsAsRecord"
-              class="text-lg text-snow"
-            >
-              <template v-if="isEdit">Update </template>
-              <span :class="previewName ? 'text-snow' : 'text-muted'">{{
-                previewName ?? "[name]"
-              }}</span>
-              {{ previewVerb }}
-              <span :class="previewValue ? 'text-snow' : 'text-muted'">{{
-                previewValue ?? "[value]"
-              }}</span
-              >{{ proxySuffix }} via a pull request on {{ upstreamLabel }}.
-            </p>
-
-            <div class="flex gap-3">
-              <div class="w-28 shrink-0">
-                <label class="mb-1.5 block text-sm font-medium text-snow" for="type">Type</label>
-                <select
-                  id="type"
-                  v-model="form.type"
-                  class="w-full rounded-lg border border-border bg-darker px-3 py-2 text-sm text-snow outline-none focus:border-primary"
-                >
-                  <option v-for="t in recordTypes" :key="t" :value="t">{{ t }}</option>
-                </select>
-              </div>
-
-              <div class="min-w-0 flex-1">
-                <label class="mb-1.5 block text-sm font-medium text-snow" for="subdomain"
-                  >Name</label
-                >
-                <input
-                  id="subdomain"
-                  v-model="form.subdomain"
-                  type="text"
-                  autocomplete="off"
-                  spellcheck="false"
-                  class="w-full rounded-lg border border-border bg-darker px-3 py-2 text-sm text-snow outline-none placeholder:text-muted/70 focus:border-primary disabled:cursor-not-allowed disabled:opacity-60"
-                  :placeholder="`coolsubdomain (becomes coolsubdomain.${bare})`"
-                  :disabled="isEdit"
-                  :title="isEdit ? 'Subdomain cannot be changed when editing' : undefined"
-                />
-                <p v-if="isEdit" class="mt-1 text-xs text-muted">
-                  Name is fixed for edits. Add a new record if you need a different subdomain.
-                </p>
-              </div>
-            </div>
-
-            <div class="flex gap-3">
-              <div class="min-w-0 flex-1">
-                <label class="mb-1.5 block text-sm font-medium text-snow" for="value">
-                  {{ form.type === "MX" ? "Exchange" : "Value" }}
-                </label>
-                <input
-                  id="value"
-                  v-model="form.value"
-                  type="text"
-                  spellcheck="false"
-                  class="w-full rounded-lg border bg-darker px-3 py-2 text-sm text-snow outline-none placeholder:text-muted/70"
-                  :class="
-                    showValueError
-                      ? 'border-red/60 focus:border-red'
-                      : 'border-border focus:border-primary'
-                  "
-                  :placeholder="valuePlaceholder"
-                  :aria-invalid="showValueError || undefined"
-                  :aria-describedby="showValueError ? 'value-error' : undefined"
-                  @focus="valueFocused = true"
-                  @blur="
-                    valueFocused = false;
-                    valueTouched = true;
-                  "
-                />
-
-                <p v-if="showValueError" id="value-error" class="mt-1.5 text-xs text-red">
-                  {{ valueError }}
-                </p>
-
-                <div
-                  v-if="form.type === 'CNAME'"
-                  class="mt-2 flex flex-wrap gap-1.5"
-                  role="group"
-                  aria-label="Common CNAME targets"
-                >
-                  <button
-                    v-for="preset in cnamePresets"
-                    :key="preset.id"
-                    type="button"
-                    class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors"
-                    :class="
-                      isCnamePresetActive(preset.value)
-                        ? 'border-primary bg-primary/15 text-snow'
-                        : 'border-border bg-darker text-muted hover:border-muted hover:text-snow'
-                    "
-                    :title="preset.value"
-                    @click="applyCnamePreset(preset)"
-                  >
-                    <span
-                      v-if="preset.icon === 'coolify-a' || preset.icon === 'coolify-b'"
-                      class="flex size-4 shrink-0 items-center justify-center rounded-full bg-primary/25 text-[10px] font-bold leading-none text-primary"
-                      aria-hidden="true"
+                    <button
+                      type="button"
+                      class="cursor-pointer rounded-lg border border-border px-3 py-1.5 text-sm text-snow transition-colors hover:bg-darkless"
+                      :disabled="refreshingFork"
+                      @click="refreshAfterManualFork"
                     >
-                      {{ preset.icon === "coolify-a" ? "A" : "B" }}
-                    </span>
-
-                    <OrchardIcon v-else-if="preset.icon === 'orchard'" />
-
-                    <Icon
-                      v-else-if="preset.icon === 'vercel'"
-                      name="simple-icons:vercel"
-                      size="0.875rem"
-                      class="shrink-0"
-                      aria-hidden="true"
-                    />
-
-                    {{ preset.label }}
-                  </button>
+                      I forked it — refresh
+                    </button>
+                  </div>
+                  <p v-if="installUrl" class="text-xs text-muted">
+                    After forking, if submit fails with a permission error, also
+                    <button
+                      type="button"
+                      class="text-primary underline-offset-2 hover:underline"
+                      @click="openAppInstall"
+                    >
+                      install the app
+                    </button>
+                    on your account so it can push branches to your fork.
+                  </p>
                 </div>
               </div>
+            </div>
+          </template>
+        </div>
 
-              <div v-if="form.type === 'MX'" class="w-28 shrink-0">
-                <label class="mb-1.5 block text-sm font-medium text-snow" for="mx-preference"
-                  >Priority</label
-                >
-                <input
-                  id="mx-preference"
-                  v-model.number="form.mxPreference"
-                  type="number"
-                  min="0"
-                  class="w-full rounded-lg border border-border bg-darker px-3 py-2 text-sm text-snow outline-none focus:border-primary"
-                />
-              </div>
+        <div
+          v-if="isDelete"
+          class="flex gap-2 rounded-lg border border-red/20 bg-red/10 p-3 text-red"
+        >
+          <Icon name="material-symbols:warning" class="mt-0.5 shrink-0" size="1rem" />
+          <p class="text-sm">
+            Delete
+            <strong class="font-medium">{{ form.type }}</strong>
+            record
+            <strong class="font-medium">{{ previewName }}</strong>
+            <template v-if="previewValue">
+              → <strong class="font-medium">{{ previewValue }}</strong>
+            </template>
+            ? This opens a pull request to {{ upstreamLabel }} that removes it once merged.
+          </p>
+        </div>
 
-              <div
-                v-if="showProxyToggle && canProxy"
-                class="flex w-auto shrink-0 flex-col justify-end"
+        <template v-if="!isDelete">
+          <div v-if="!isEdit && queued.length > 0">
+            <p class="mb-2 text-sm font-medium text-snow">Queued records ({{ queued.length }})</p>
+            <TransitionGroup name="list" tag="ul" class="space-y-1.5">
+              <li
+                v-for="(q, i) in queued"
+                :key="`${q.type}-${q.subdomain}-${q.value}-${i}`"
+                class="flex items-center gap-2 rounded-lg border border-border bg-darker px-3 py-2 text-sm"
               >
-                <span class="mb-1.5 block text-sm font-medium text-snow">Proxy status</span>
+                <span
+                  class="shrink-0 rounded bg-primary/15 px-1.5 py-0.5 text-xs font-semibold text-primary"
+                >
+                  {{ q.type }}
+                </span>
+                <span class="shrink-0 truncate text-snow">{{ q.subdomain }}.{{ bare }}</span>
+                <Icon
+                  name="material-symbols:arrow-right-alt"
+                  size="1rem"
+                  class="shrink-0 text-muted"
+                />
+                <span class="min-w-0 flex-1 truncate text-muted" :title="q.value">
+                  {{ q.value }}
+                </span>
+                <span
+                  v-if="q.proxied"
+                  class="shrink-0 rounded bg-orange/15 px-1.5 py-0.5 text-xs text-orange"
+                >
+                  Proxied
+                </span>
+                <span
+                  v-if="q.ttl !== undefined"
+                  class="shrink-0 rounded bg-steel/40 px-1.5 py-0.5 text-xs text-muted"
+                >
+                  TTL {{ q.ttl }}
+                </span>
                 <button
                   type="button"
-                  role="switch"
-                  :aria-checked="form.proxied"
-                  class="inline-flex h-9.5 cursor-pointer items-center gap-2 rounded-lg border border-border bg-darker px-3 text-sm transition-colors hover:border-muted"
-                  :title="
-                    form.proxied
-                      ? 'Traffic is proxied through Cloudflare (orange cloud)'
-                      : 'DNS only — not proxied through Cloudflare'
+                  class="flex size-6 shrink-0 items-center justify-center rounded text-muted transition-colors hover:bg-darkless hover:text-snow"
+                  :aria-label="`Remove queued ${q.type} record for ${q.subdomain}.${bare}`"
+                  @click="removeQueuedRecord(i)"
+                >
+                  <Icon name="material-symbols:close-rounded" size="1rem" />
+                </button>
+              </li>
+            </TransitionGroup>
+            <p class="mt-2 text-xs text-muted">All queued records go into a single pull request.</p>
+          </div>
+
+          <p
+            v-if="isEdit || queued.length === 0 || currentCountsAsRecord"
+            class="hidden wrap-break-word text-lg text-snow sm:block"
+          >
+            <template v-if="isEdit">Update </template>
+            <span :class="previewName ? 'text-snow' : 'text-muted'">{{
+              previewName ?? "[name]"
+            }}</span>
+            {{ previewVerb }}
+            <span :class="previewValue ? 'text-snow' : 'text-muted'">{{
+              previewValue ?? "[value]"
+            }}</span
+            >{{ proxySuffix }} via a pull request on {{ upstreamLabel }}.
+          </p>
+
+          <div class="flex flex-col gap-3 sm:flex-row">
+            <div class="w-full shrink-0 sm:w-28">
+              <label class="mb-1.5 block text-sm font-medium text-snow" for="type">Type</label>
+              <select
+                id="type"
+                v-model="form.type"
+                class="min-h-11 w-full rounded-lg border border-border bg-darker px-3 py-2 text-base text-snow outline-none focus:border-primary sm:min-h-0 sm:text-sm"
+              >
+                <option v-for="t in recordTypes" :key="t" :value="t">{{ t }}</option>
+              </select>
+            </div>
+
+            <div class="min-w-0 flex-1">
+              <label class="mb-1.5 block text-sm font-medium text-snow" for="subdomain">Name</label>
+              <input
+                id="subdomain"
+                v-model="form.subdomain"
+                type="text"
+                autocomplete="off"
+                spellcheck="false"
+                class="min-h-11 w-full rounded-lg border border-border bg-darker px-3 py-2 text-base text-snow outline-none placeholder:text-muted/70 focus:border-primary disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-0 sm:text-sm"
+                :placeholder="`coolsubdomain (becomes coolsubdomain.${bare})`"
+                :disabled="isEdit"
+                :title="isEdit ? 'Subdomain cannot be changed when editing' : undefined"
+              />
+              <p v-if="isEdit" class="mt-1 text-xs text-muted">Name can't be changed here.</p>
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-3 sm:flex-row">
+            <div class="min-w-0 flex-1">
+              <label class="mb-1.5 block text-sm font-medium text-snow" for="value">
+                {{ form.type === "MX" ? "Exchange" : "Value" }}
+              </label>
+              <input
+                id="value"
+                v-model="form.value"
+                type="text"
+                spellcheck="false"
+                class="min-h-11 w-full rounded-lg border bg-darker px-3 py-2 text-base text-snow outline-none placeholder:text-muted/70 sm:min-h-0 sm:text-sm"
+                :class="
+                  showValueError
+                    ? 'border-red/60 focus:border-red'
+                    : 'border-border focus:border-primary'
+                "
+                :placeholder="valuePlaceholder"
+                :aria-invalid="showValueError || undefined"
+                :aria-describedby="showValueError ? 'value-error' : undefined"
+                @focus="valueFocused = true"
+                @blur="
+                  valueFocused = false;
+                  valueTouched = true;
+                "
+              />
+
+              <p v-if="showValueError" id="value-error" class="mt-1.5 text-xs text-red">
+                {{ valueError }}
+              </p>
+
+              <div
+                v-if="form.type === 'CNAME'"
+                class="mt-2 flex flex-wrap gap-1.5"
+                role="group"
+                aria-label="Common CNAME targets"
+              >
+                <button
+                  v-for="preset in cnamePresets"
+                  :key="preset.id"
+                  type="button"
+                  class="inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors sm:min-h-0 sm:px-2.5"
+                  :class="
+                    isCnamePresetActive(preset.value)
+                      ? 'border-primary bg-primary/15 text-snow'
+                      : 'border-border bg-darker text-muted hover:border-muted hover:text-snow'
                   "
-                  @click="form.proxied = !form.proxied"
+                  :title="preset.value"
+                  @click="applyCnamePreset(preset)"
                 >
                   <span
-                    class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors"
-                    :class="form.proxied ? 'bg-primary' : 'bg-steel'"
+                    v-if="preset.icon === 'coolify-a' || preset.icon === 'coolify-b'"
+                    class="flex size-4 shrink-0 items-center justify-center rounded-full bg-primary/25 text-[10px] font-bold leading-none text-primary"
+                    aria-hidden="true"
                   >
-                    <span
-                      class="inline-block size-4 rounded-full bg-white shadow transition-transform"
-                      :class="form.proxied ? 'translate-x-4' : 'translate-x-0.5'"
-                    />
+                    {{ preset.icon === "coolify-a" ? "A" : "B" }}
                   </span>
+
+                  <OrchardIcon v-else-if="preset.icon === 'orchard'" />
+
                   <Icon
-                    name="material-symbols:cloud"
-                    size="1.15rem"
-                    :class="form.proxied ? 'text-orange' : 'text-muted'"
+                    v-else-if="preset.icon === 'vercel'"
+                    name="simple-icons:vercel"
+                    size="0.875rem"
+                    class="shrink-0"
+                    aria-hidden="true"
                   />
-                  <span :class="form.proxied ? 'text-snow' : 'text-muted'">
-                    {{ form.proxied ? "Proxied" : "DNS only" }}
-                  </span>
+
+                  {{ preset.label }}
                 </button>
               </div>
             </div>
 
-            <div>
-              <label class="mb-1.5 block text-sm font-medium text-snow" for="contact"
-                >Contact</label
+            <div v-if="form.type === 'MX'" class="w-full shrink-0 sm:w-28">
+              <label class="mb-1.5 block text-sm font-medium text-snow" for="mx-preference"
+                >Priority</label
               >
               <input
-                id="contact"
-                v-model="form.contact"
-                type="text"
-                autocomplete="off"
-                class="w-full rounded-lg border border-border bg-darker px-3 py-2 text-sm text-snow outline-none placeholder:text-muted/70 focus:border-primary"
-                placeholder="you@example.com U012AB345CD"
+                id="mx-preference"
+                v-model.number="form.mxPreference"
+                type="number"
+                min="0"
+                class="min-h-11 w-full rounded-lg border border-border bg-darker px-3 py-2 text-base text-snow outline-none focus:border-primary sm:min-h-0 sm:text-sm"
               />
-              <p class="mt-1 text-xs text-muted">
-                Required by hackclub/dns CI — email and/or Slack member ID.
-              </p>
             </div>
 
-            <div class="border-t border-border pt-4">
+            <div
+              v-if="showProxyToggle && canProxy"
+              class="flex w-full shrink-0 flex-col justify-end sm:w-auto"
+            >
+              <span class="mb-1.5 block text-sm font-medium text-snow">Proxy status</span>
               <button
                 type="button"
-                class="flex items-center gap-2 text-sm font-medium text-snow transition-colors hover:text-primary"
-                :aria-expanded="showAdvanced"
-                @click="showAdvanced = !showAdvanced"
+                role="switch"
+                :aria-checked="form.proxied"
+                class="inline-flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-lg border border-border bg-darker px-3 text-sm transition-colors hover:border-muted sm:h-9.5 sm:min-h-0 sm:w-auto"
+                :title="
+                  form.proxied
+                    ? 'Traffic is proxied through Cloudflare (orange cloud)'
+                    : 'DNS only — not proxied through Cloudflare'
+                "
+                @click="form.proxied = !form.proxied"
               >
+                <span
+                  class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors"
+                  :class="form.proxied ? 'bg-primary' : 'bg-steel'"
+                >
+                  <span
+                    class="inline-block size-4 rounded-full bg-white shadow transition-transform"
+                    :class="form.proxied ? 'translate-x-4' : 'translate-x-0.5'"
+                  />
+                </span>
                 <Icon
-                  name="icon-park-outline:down"
-                  size="0.875rem"
-                  class="transition-transform"
-                  :class="{ '-rotate-90': !showAdvanced }"
+                  name="material-symbols:cloud"
+                  size="1.15rem"
+                  :class="form.proxied ? 'text-orange' : 'text-muted'"
                 />
-                Record attributes
+                <span :class="form.proxied ? 'text-snow' : 'text-muted'">
+                  {{ form.proxied ? "Proxied" : "DNS only" }}
+                </span>
               </button>
-              <div v-show="showAdvanced" class="mt-3">
+            </div>
+          </div>
+
+          <div>
+            <label class="mb-1.5 block text-sm font-medium text-snow" for="contact">Contact</label>
+            <input
+              id="contact"
+              v-model="form.contact"
+              type="text"
+              autocomplete="off"
+              class="min-h-11 w-full rounded-lg border border-border bg-darker px-3 py-2 text-base text-snow outline-none placeholder:text-muted/70 focus:border-primary sm:min-h-0 sm:text-sm"
+              placeholder="you@example.com U012AB345CD"
+            />
+            <p class="mt-1 text-xs text-muted">
+              Required by hackclub/dns CI — email and/or Slack member ID.
+            </p>
+          </div>
+
+          <div class="border-t border-border pt-4">
+            <button
+              type="button"
+              class="flex items-center gap-2 text-sm font-medium text-snow transition-colors hover:text-primary"
+              :aria-expanded="showAdvanced"
+              @click="showAdvanced = !showAdvanced"
+            >
+              <Icon
+                name="icon-park-outline:down"
+                size="0.875rem"
+                class="transition-transform"
+                :class="{ '-rotate-90': !showAdvanced }"
+              />
+              Record attributes
+            </button>
+            <Transition name="notice">
+              <div v-if="showAdvanced" class="mt-3">
                 <label class="mb-1.5 block text-sm font-medium text-snow" for="ttl">TTL</label>
                 <input
                   id="ttl"
                   v-model="form.ttl"
                   type="number"
                   min="1"
-                  class="w-full rounded-lg border border-border bg-darker px-3 py-2 text-sm text-snow outline-none placeholder:text-muted/70 focus:border-primary disabled:opacity-50"
+                  class="min-h-11 w-full rounded-lg border border-border bg-darker px-3 py-2 text-base text-snow outline-none placeholder:text-muted/70 focus:border-primary disabled:opacity-50 sm:min-h-0 sm:text-sm"
                   placeholder="Leave empty for default"
                   :disabled="form.proxied && canProxy"
                 />
@@ -1227,58 +1195,68 @@ const valuePlaceholder = computed(() => {
                   }}
                 </p>
               </div>
-            </div>
-          </template>
-
-          <div class="flex flex-wrap gap-2 border-t border-border pt-4">
-            <button
-              type="submit"
-              class="rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors disabled:opacity-50"
-              :class="isDelete ? 'bg-red hover:bg-red/85' : 'bg-primary hover:bg-primary/85'"
-              :disabled="!canSubmit"
-            >
-              {{
-                isDelete
-                  ? "Delete record"
-                  : `Open Pull Request${!isEdit && totalRecords > 1 ? ` (${totalRecords} records)` : ""}`
-              }}
-            </button>
-            <button
-              v-if="!isEdit && !isDelete"
-              type="button"
-              class="rounded-lg border border-border px-4 py-2 text-sm text-snow transition-colors hover:bg-darkless disabled:opacity-50"
-              :disabled="!currentRecordValid || sending || refreshingFork"
-              title="Queue this record and add another one to the same pull request"
-              @click="queueCurrentRecord"
-            >
-              <Icon name="material-symbols:add" size="0.875rem" class="mr-1" />
-              Add another record
-            </button>
-            <button
-              v-if="isEdit"
-              type="button"
-              class="rounded-lg border border-red/30 px-4 py-2 text-sm text-red transition-colors hover:bg-red/10 disabled:opacity-50"
-              :disabled="sending || refreshingFork"
-              @click="startDelete"
-            >
-              Delete record
-            </button>
-            <button
-              type="button"
-              class="rounded-lg border border-border px-4 py-2 text-sm text-snow transition-colors hover:bg-darkless disabled:opacity-50"
-              :disabled="sending || refreshingFork"
-              @click="back"
-            >
-              {{ isEdit || isDelete ? "Cancel" : "Back" }}
-            </button>
+            </Transition>
           </div>
+        </template>
 
-          <p v-if="isEdit && !hasChanges" class="text-xs text-muted">
+        <div
+          class="sticky -bottom-4 z-10 -mx-4 border-t border-border bg-dark/95 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:p-0 sm:pt-4 sm:backdrop-blur-none"
+        >
+          <p v-if="isEdit && !hasChanges" class="mb-2 text-xs text-muted">
             Change at least one field to open a pull request.
           </p>
-        </form>
-      </div>
-    </div>
+
+          <div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <button
+              v-if="!isDelete"
+              type="submit"
+              class="min-h-11 w-full rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary/85 disabled:opacity-50 sm:min-h-0 sm:w-auto"
+              :disabled="!canSubmit"
+            >
+              Open Pull Request{{ !isEdit && totalRecords > 1 ? ` (${totalRecords} records)` : "" }}
+            </button>
+
+            <div class="grid grid-cols-2 gap-2 sm:contents">
+              <button
+                v-if="!isEdit && !isDelete"
+                type="button"
+                class="min-h-11 w-full rounded-lg border border-border px-3 py-2 text-sm text-snow transition-colors hover:bg-darkless disabled:opacity-50 sm:min-h-0 sm:w-auto sm:px-4"
+                :disabled="!currentRecordValid || sending || refreshingFork"
+                title="Queue this record and add another one to the same pull request"
+                @click="queueCurrentRecord"
+              >
+                Add another
+              </button>
+              <button
+                v-if="isEdit"
+                type="button"
+                class="min-h-11 w-full rounded-lg border border-red/30 px-3 py-2 text-sm text-red transition-colors hover:bg-red/10 disabled:opacity-50 sm:min-h-0 sm:w-auto sm:px-4"
+                :disabled="sending || refreshingFork"
+                @click="startDelete"
+              >
+                Delete record
+              </button>
+              <button
+                v-if="isDelete"
+                type="submit"
+                class="min-h-11 w-full rounded-lg bg-red px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-red/85 disabled:opacity-50 sm:min-h-0 sm:w-auto sm:px-4"
+                :disabled="!canSubmit"
+              >
+                Delete record
+              </button>
+              <button
+                type="button"
+                class="min-h-11 w-full rounded-lg border border-border px-3 py-2 text-sm text-snow transition-colors hover:bg-darkless disabled:opacity-50 sm:min-h-0 sm:w-auto sm:px-4"
+                :disabled="sending || refreshingFork"
+                @click="back"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      </form>
+    </AnimatedModal>
   </Teleport>
 
   <SuccessModal

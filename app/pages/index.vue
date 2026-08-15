@@ -117,52 +117,56 @@ const matched = computed(() => {
       @select-domain="selectedDomain = $event"
     />
 
-    <main class="flex-1 overflow-auto p-5 sm:p-8">
+    <main class="min-w-0 flex-1 overflow-auto px-4 py-5 sm:p-8">
       <div class="mx-auto max-w-6xl">
-        <header class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <header class="flex items-center justify-between gap-3 sm:items-start">
           <div class="min-w-0">
-            <h1 class="truncate text-2xl font-semibold text-snow">DNS records for {{ bare }}</h1>
-            <p class="mt-1 text-sm text-muted">
+            <h1 class="truncate text-xl font-semibold text-snow sm:text-2xl">
+              DNS records for {{ bare }}
+            </h1>
+            <p class="mt-1 hidden text-sm leading-5 text-muted sm:block">
               Browse records for this domain and open pull requests to add or edit subdomains from
               your fork.
             </p>
           </div>
-          <UserMenu class="shrink-0 self-start" />
+          <UserMenu class="shrink-0" />
         </header>
 
-        <div
-          v-if="authError"
-          class="mt-4 flex items-start gap-2 rounded-lg border border-red/20 bg-red/10 p-3 text-sm text-red"
-        >
-          <Icon name="material-symbols:error-outline" class="mt-0.5 shrink-0" size="1.1rem" />
-          <p class="min-w-0 flex-1">{{ authError }}</p>
-          <button
-            type="button"
-            class="shrink-0 text-red/80 hover:text-red"
-            aria-label="Dismiss"
-            @click="authError = null"
+        <Transition name="notice">
+          <div
+            v-if="authError"
+            class="mt-4 flex items-start gap-2 rounded-lg border border-red/20 bg-red/10 p-3 text-sm text-red"
           >
-            <Icon name="material-symbols:close-rounded" size="1.1rem" />
-          </button>
-        </div>
+            <Icon name="material-symbols:error-outline" class="mt-0.5 shrink-0" size="1.1rem" />
+            <p class="min-w-0 flex-1">{{ authError }}</p>
+            <button
+              type="button"
+              class="shrink-0 text-red/80 hover:text-red"
+              aria-label="Dismiss"
+              @click="authError = null"
+            >
+              <Icon name="material-symbols:close-rounded" size="1.1rem" />
+            </button>
+          </div>
+        </Transition>
 
-        <div class="mt-6 flex items-center gap-2">
-          <DnsSearch v-model="searchQuery" class="min-w-0 flex-1" />
+        <div class="mt-4 grid grid-cols-[1fr_auto] gap-2 sm:mt-5 sm:flex sm:items-center">
+          <DnsSearch v-model="searchQuery" class="col-span-2 min-w-0 flex-1 sm:col-span-1" />
 
           <a
             :href="`https://github.com/hackclub/dns/blob/main/${selectedDomain}`"
             target="_blank"
             rel="noreferrer"
-            class="flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-dark px-3 py-2 text-sm text-snow transition-colors hover:bg-darkless"
+            class="flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-border bg-dark px-3 text-sm text-snow transition-colors hover:bg-darkless sm:min-h-0 sm:py-2"
             title="View source on GitHub"
           >
             <Icon name="material-symbols:code" size="1rem" />
-            <span class="hidden sm:inline">Source</span>
+            <span>Source</span>
           </a>
 
           <button
             type="button"
-            class="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-primary/85"
+            class="flex min-h-11 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-white transition-colors hover:bg-primary/85 sm:min-h-0 sm:py-2"
             @click="openAdd"
           >
             <Icon name="material-symbols:add" size="1rem" />
@@ -170,13 +174,15 @@ const matched = computed(() => {
           </button>
         </div>
 
-        <p
-          v-if="searchQuery && !loading && !error"
-          class="mt-3 text-xs text-muted"
-          aria-live="polite"
-        >
-          Showing results for “{{ searchQuery }}”
-        </p>
+        <Transition name="notice">
+          <p
+            v-if="searchQuery && !loading && !error"
+            class="mt-3 text-xs text-muted"
+            aria-live="polite"
+          >
+            Showing results for “{{ searchQuery }}”
+          </p>
+        </Transition>
 
         <div v-if="loading" class="flex items-center justify-center p-12">
           <Icon
