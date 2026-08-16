@@ -32,8 +32,14 @@ export interface AuthState {
 
 export function useAuth() {
   const ssrEvent = import.meta.server ? useRequestEvent() : null;
+  const forkPending = useState("auth-fork-pending", () => false);
 
-  const { data, pending, error, refresh } = useFetch<AuthState>("/api/auth/me", {
+  const {
+    data,
+    pending,
+    error,
+    refresh: refreshSession,
+  } = useFetch<AuthState>("/api/auth/me", {
     key: "auth-me",
     onResponse({ response }) {
       if (!ssrEvent) return;
@@ -56,8 +62,16 @@ export function useAuth() {
   return {
     data,
     pending,
+    forkPending: readonly(forkPending),
     error,
-    refresh,
+    async refresh() {
+      forkPending.value = true;
+      try {
+        data.value = await $fetch<AuthState>("/api/auth/me?includeFork=1");
+      } finally {
+        forkPending.value = false;
+      }
+    },
     authenticated: computed(() => data.value?.authenticated === true),
     user: pick((s) => s.user),
     fork: pick((s) => s.fork),
@@ -70,7 +84,7 @@ export function useAuth() {
     },
     async logout() {
       await $fetch("/api/auth/logout", { method: "POST" });
-      await refresh();
+      await refreshSession();
     },
   };
 }

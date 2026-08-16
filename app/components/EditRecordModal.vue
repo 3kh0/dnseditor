@@ -37,6 +37,7 @@ const {
   installUrl,
   manualForkUrl,
   pending: authPending,
+  forkPending,
   login,
   refresh,
 } = useAuth();
@@ -227,12 +228,15 @@ const hasChanges = computed(() => {
   return false;
 });
 
-const needsManualFork = computed(() => authenticated.value && !authPending.value && !fork.value);
+const needsManualFork = computed(
+  () => authenticated.value && !authPending.value && !forkPending.value && !fork.value,
+);
 const canSubmit = computed(
   () =>
     isValid.value &&
     !sending.value &&
     !refreshingFork.value &&
+    !forkPending.value &&
     authenticated.value &&
     !!fork.value &&
     appAccess.value?.accessible !== false,
@@ -825,6 +829,10 @@ const valuePlaceholder = computed(() => {
         <div class="rounded-lg border border-border bg-darker p-3 text-sm">
           <template v-if="authPending">
             <p class="text-muted">Checking GitHub sign-in…</p>
+          </template>
+
+          <template v-else-if="forkPending">
+            <p class="text-muted">Looking for your fork…</p>
           </template>
 
           <template v-else-if="!authenticated">

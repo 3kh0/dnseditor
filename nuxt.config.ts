@@ -26,4 +26,14 @@ export default defineNuxtConfig({
   },
 
   modules: ["@nuxt/icon", "@vercel/speed-insights", "@vercel/analytics"],
+
+  icon: {
+    provider: "none",
+    serverBundle: false,
+    clientBundle: {
+      scan: true,
+      icons: ["material-symbols:cloud", "material-symbols:cloud-outline"],
+      sizeLimitKb: 64,
+    },
+  },
 });

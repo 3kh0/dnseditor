@@ -10,6 +10,7 @@ import {
 import { getAppSession } from "../../utils/session";
 
 export default defineEventHandler(async (event) => {
+  const includeFork = getQuery(event).includeFork === "1";
   const upstream = getUpstreamRepo(event);
   const installUrl = getInstallUrl(event);
   const manualForkUrl = getManualForkUrl(upstream.owner, upstream.repo);
@@ -43,10 +44,13 @@ export default defineEventHandler(async (event) => {
   const signedIn = {
     authenticated: true as const,
     user: { login: s.login, name: s.name ?? null, avatarUrl: s.avatarUrl ?? null },
+    fork: null,
     upstream: upstreamPayload,
     installUrl,
     manualForkUrl,
   };
+
+  if (!includeFork) return signedIn;
 
   try {
     const fork = await findUserFork(

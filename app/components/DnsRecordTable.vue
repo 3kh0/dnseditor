@@ -42,7 +42,9 @@ interface Row {
 }
 
 const MOBILE_PAGE_SIZE = 50;
+const DESKTOP_PAGE_SIZE = 100;
 const mobileLimit = ref(MOBILE_PAGE_SIZE);
+const desktopLimit = ref(DESKTOP_PAGE_SIZE);
 const isMobile = ref(true);
 const openMenu = ref<number | null>(null);
 let mobileMedia: MediaQueryList | null = null;
@@ -67,6 +69,7 @@ const rows = computed<Row[]>(() =>
 );
 
 const mobileRows = computed(() => rows.value.slice(0, mobileLimit.value));
+const desktopRows = computed(() => rows.value.slice(0, desktopLimit.value));
 
 function updateMobileLayout(event: MediaQueryList | MediaQueryListEvent) {
   isMobile.value = event.matches;
@@ -107,6 +110,7 @@ onBeforeUnmount(() => {
 
 watch([() => props.groups, () => props.searchQuery], () => {
   mobileLimit.value = MOBILE_PAGE_SIZE;
+  desktopLimit.value = DESKTOP_PAGE_SIZE;
   closeMenu();
 });
 
@@ -359,7 +363,7 @@ function contentText(row: Row): string {
           </thead>
           <tbody class="divide-y divide-border/60">
             <tr
-              v-for="(row, i) in rows"
+              v-for="(row, i) in desktopRows"
               :key="i"
               class="text-sm transition-colors hover:bg-darkless/60"
             >
@@ -467,6 +471,16 @@ function contentText(row: Row): string {
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <div v-if="desktopRows.length < rows.length" class="border-t border-border p-3">
+        <button
+          type="button"
+          class="w-full cursor-pointer rounded-lg border border-border bg-darker px-4 py-2 text-sm font-medium text-snow transition-colors hover:bg-darkless"
+          @click="desktopLimit += DESKTOP_PAGE_SIZE"
+        >
+          Show {{ Math.min(DESKTOP_PAGE_SIZE, rows.length - desktopRows.length) }} more records
+        </button>
       </div>
     </div>
   </div>
