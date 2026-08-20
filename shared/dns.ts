@@ -217,6 +217,17 @@ export function flattenYamlRecords(entry: unknown): CollisionRecord[] {
   return out;
 }
 
+export function sameRecordTarget(
+  a: { type: string; value: string; mxPreference?: number },
+  b: { type: string; value: string; mxPreference?: number },
+): boolean {
+  if (a.type.toUpperCase() !== b.type.toUpperCase()) return false;
+  if (stripDot(String(a.value)) !== stripDot(String(b.value))) return false;
+  if (a.type.toUpperCase() !== "MX") return true;
+  if (a.mxPreference === undefined || b.mxPreference === undefined) return true;
+  return Number(a.mxPreference) === Number(b.mxPreference);
+}
+
 export function addRecordCollision(
   existing: CollisionRecord[],
   type: string,

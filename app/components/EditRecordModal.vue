@@ -8,6 +8,7 @@ import {
   hasContact,
   isSubdomain,
   recordValueError,
+  sameRecordTarget,
   selfReferenceError,
   supportsCfProxy,
   type CollisionRecord,
@@ -29,12 +30,14 @@ const props = withDefaults(
     show: boolean;
     domain: string;
     groups?: DnsRecordGroup[];
+    /** True while `groups` is being refetched — stale checks wait for it to settle. */
+    groupsPending?: boolean;
     editing?: EditingRecord | null;
     initialMode?: "edit" | "delete";
   }>(),
-  { initialMode: "edit", groups: () => [] },
+  { initialMode: "edit", groups: () => [], groupsPending: false },
 );
-const emit = defineEmits<{ close: [] }>();
+const emit = defineEmits<{ close: []; refresh: [] }>();
 
 const {
   authenticated,
@@ -344,6 +347,58 @@ function overwriteExisting() {
   }
 }
 
+/** Records under this name as upstream has them — queued additions excluded. */
+const liveAtName = computed(() => existingAtName.value.filter((r) => r.source === "existing"));
+
+/**
+ * The record being edited or deleted is no longer in the domain file — a pull request
+ * merged (or someone committed) after this page loaded its record list. Submitting would
+ * fail server-side with "No matching <TYPE> record", so block it and say so here instead.
+ */
+const originalGone = computed(() => {
+  const o = original.value;
+  if (!o || (!isEdit.value && !isDelete.value)) return false;
+  if (props.groupsPending || (props.groups ?? []).length === 0) return false;
+  return !liveAtName.value.some((r) => sameRecordTarget(r, o));
+});
+
+const originalFqdn = computed(() =>
+  original.value ? `${original.value.subdomain}.${bare.value}` : null,
+);
+
+const staleDetail = computed(() => {
+  const now = liveAtName.value;
+  if (now.length === 0) return `There are no records left under ${originalFqdn.value}.`;
+  if (now.length === 1)
+    return `That name now has a single ${now[0]!.type} record (${now[0]!.value}).`;
+  return `That name now has ${now.length} records: ${now.map((r) => `${r.type} ${r.value}`).join(", ")}.`;
+});
+
+/** Only offered for an unambiguous edit — retargeting a delete could remove the wrong record. */
+const retargetTarget = computed(() =>
+  originalGone.value && isEdit.value && liveAtName.value.length === 1 ? liveAtName.value[0]! : null,
+);
+
+function reloadGroups() {
+  emit("refresh");
+}
+
+/** Point the edit at the record that actually exists, keeping whatever the user typed. */
+function retargetToLive() {
+  const target = retargetTarget.value;
+  if (!target) return;
+  original.value = {
+    subdomain: form.value.subdomain.trim().toLowerCase(),
+    type: target.type,
+    value: target.value,
+    ttl: target.ttl,
+    mxPreference: target.mxPreference,
+    proxied: target.proxied,
+    contact: target.contact,
+  };
+  if (!form.value.contact.trim()) form.value.contact = target.contact?.trim() || loadContact();
+}
+
 /** True when the form differs from the original record being edited. */
 const hasChanges = computed(() => {
   if (!original.value) return true;
@@ -367,6 +422,8 @@ const needsManualFork = computed(
 const canSubmit = computed(
   () =>
     isValid.value &&
+    !originalGone.value &&
+    !props.groupsPending &&
     !sending.value &&
     !refreshingFork.value &&
     !forkPending.value &&
@@ -452,6 +509,9 @@ watch(
       mode.value = "add";
       if (!form.value.contact.trim()) form.value.contact = loadContact();
     }
+    // The record list can be minutes-to-hours stale by the time someone opens this
+    // modal; re-read it so an edit is matched against what upstream has right now.
+    emit("refresh");
     await refresh();
     void checkAppAccess();
   },
@@ -957,6 +1017,36 @@ const valuePlaceholder = computed(() => {
           >
             {{ checkingAppInstall ? "Checking access…" : appAccessActionLabel }}
           </button>
+        </div>
+
+        <div
+          v-if="originalGone && original"
+          class="rounded-lg border border-red/20 bg-red/10 p-3 text-sm text-red"
+        >
+          <p>
+            The <span class="font-medium">{{ original.type }}</span> record ({{ original.value }})
+            under <code class="text-snow">{{ originalFqdn }}</code> is no longer in
+            {{ upstreamLabel }} — it changed after this page loaded its record list.
+            {{ staleDetail }}
+          </p>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button
+              v-if="retargetTarget"
+              type="button"
+              class="inline-flex min-h-9 items-center rounded-lg bg-primary px-3 py-1.5 font-medium text-white transition-colors hover:bg-primary/85"
+              @click="retargetToLive"
+            >
+              Edit the {{ retargetTarget.type }} record instead
+            </button>
+            <button
+              type="button"
+              class="inline-flex min-h-9 items-center rounded-lg border border-red/30 px-3 py-1.5 font-medium text-snow transition-colors hover:bg-red/10 disabled:opacity-50"
+              :disabled="groupsPending"
+              @click="reloadGroups"
+            >
+              {{ groupsPending ? "Reloading…" : "Reload records" }}
+            </button>
+          </div>
         </div>
 
         <div class="rounded-lg border border-border bg-darker p-3 text-sm">

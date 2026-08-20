@@ -23,13 +23,17 @@ export async function fetchDomainRecords(domain: string): Promise<DnsRecordGroup
   }));
 }
 
-export const getDomainRecords = defineCachedFunction(fetchDomainRecords, {
-  name: "domain-records",
-  maxAge: DOMAIN_CACHE_MAX_AGE,
-  swr: true,
-  staleMaxAge: DOMAIN_CACHE_STALE_MAX_AGE,
-  getKey: (domain) => domain,
-});
+export const getDomainRecords = defineCachedFunction(
+  (domain: string, _opts?: { fresh?: boolean }) => fetchDomainRecords(domain),
+  {
+    name: "domain-records",
+    maxAge: DOMAIN_CACHE_MAX_AGE,
+    swr: true,
+    staleMaxAge: DOMAIN_CACHE_STALE_MAX_AGE,
+    getKey: (domain: string) => domain,
+    shouldInvalidateCache: (_domain: string, opts?: { fresh?: boolean }) => opts?.fresh === true,
+  },
+);
 
 function contactsBySubdomain(doc: YAML.Document): Map<string, string> {
   const contacts = new Map<string, string>();

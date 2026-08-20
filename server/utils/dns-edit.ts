@@ -264,7 +264,7 @@ function removeMatchingItem(entry: unknown, match: RecordMatch): unknown {
   if (!found) {
     throw createError({
       statusCode: 404,
-      message: `No matching ${matchType} record with that value was found under this subdomain`,
+      message: `No matching ${matchType} record with that value was found under this subdomain — it changed since the record list was loaded. Reload and try again.`,
     });
   }
 
@@ -330,7 +330,7 @@ function mutateEntry(entry: unknown, match: RecordMatch, replacement: Replacemen
   if (!found) {
     throw createError({
       statusCode: 404,
-      message: `No matching ${matchType} record with that value was found under this subdomain`,
+      message: `No matching ${matchType} record with that value was found under this subdomain — it changed since the record list was loaded. Reload and try again.`,
     });
   }
 

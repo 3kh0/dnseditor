@@ -12,14 +12,19 @@ export default defineEventHandler(async (event): Promise<DnsRecordGroup[]> => {
     throw createError({ statusCode: 404, statusMessage: "Unknown domain" });
   }
 
+  const raw = getQuery(event).fresh;
+  const fresh = raw !== undefined && raw !== "0" && raw !== "false";
+
   setResponseHeader(
     event,
     "Cache-Control",
-    `public, max-age=${DOMAIN_CACHE_MAX_AGE}, s-maxage=600, stale-while-revalidate=${DOMAIN_CACHE_STALE_MAX_AGE}`,
+    fresh
+      ? "no-store"
+      : `public, max-age=${DOMAIN_CACHE_MAX_AGE}, s-maxage=600, stale-while-revalidate=${DOMAIN_CACHE_STALE_MAX_AGE}`,
   );
 
   try {
-    return await getDomainRecords(domain);
+    return await getDomainRecords(domain, { fresh });
   } catch (e) {
     console.error(`Failed to load ${domain}`, e);
     throw createError({

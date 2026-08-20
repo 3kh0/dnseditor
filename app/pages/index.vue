@@ -77,16 +77,36 @@ onMounted(() => {
   }
 });
 
+/** Set for the next fetch only — an explicit reload must skip every cache layer. */
+let bypassCache = false;
+
 const {
   data: records,
   error,
   status,
-} = useFetch<DnsRecordGroup[]>(() => `/api/domains/${selectedDomain.value}`, {
-  default: () => [],
-  watch: [selectedDomain],
-});
+  refresh: refetchRecords,
+} = useAsyncData<DnsRecordGroup[]>(
+  "domain-records",
+  () => {
+    const fresh = bypassCache;
+    bypassCache = false;
+    return fresh
+      ? $fetch<DnsRecordGroup[]>(`/api/domains/${selectedDomain.value}`, {
+          query: { fresh: 1 },
+          cache: "no-store",
+        })
+      : $fetch<DnsRecordGroup[]>(`/api/domains/${selectedDomain.value}`);
+  },
+  { default: () => [], watch: [selectedDomain] },
+);
 
-const loading = computed(() => status.value === "pending");
+async function reloadRecords() {
+  bypassCache = true;
+  await refetchRecords();
+}
+
+// Only the first load blanks the table; a background reload keeps the current rows.
+const loading = computed(() => status.value === "pending" && records.value.length === 0);
 const errorMessage = computed(() =>
   error.value ? (error.value.statusMessage ?? error.value.message) : "",
 );
@@ -225,9 +245,11 @@ const matched = computed(() => {
       :show="showEditModal"
       :domain="selectedDomain"
       :groups="records"
+      :groups-pending="status === 'pending'"
       :editing="editingRecord"
       :initial-mode="modalMode"
       @close="closeModal"
+      @refresh="reloadRecords"
     />
   </div>
 </template>
