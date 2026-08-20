@@ -224,6 +224,7 @@ const matched = computed(() => {
     <EditRecordModal
       :show="showEditModal"
       :domain="selectedDomain"
+      :groups="records"
       :editing="editingRecord"
       :initial-mode="modalMode"
       @close="closeModal"

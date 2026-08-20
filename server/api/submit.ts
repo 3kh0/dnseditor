@@ -1,7 +1,11 @@
 import { Octokit } from "@octokit/rest";
 import YAML from "yaml";
 import {
+  addRecordCollision,
   bareDomain,
+  collisionBlocksAdd,
+  flattenYamlRecords,
+  formatCollisionMessage,
   hasContact,
   isDomainFile,
   isObj,
@@ -288,6 +292,19 @@ export default defineEventHandler(async (event) => {
       for (const rec of recs) {
         const current = YAML.parse(updated);
         if (!isObj(current)) throw new Error(`${domain} does not contain a YAML mapping`);
+        const existing = Object.prototype.hasOwnProperty.call(current, rec.subdomain)
+          ? flattenYamlRecords(current[rec.subdomain])
+          : [];
+        const collision = addRecordCollision(existing, rec.type, rec.value);
+        if (collisionBlocksAdd(collision)) {
+          throw createError({
+            statusCode: 400,
+            message: formatCollisionMessage(collision, {
+              fqdn: `${rec.subdomain}.${bareDomain(domain)}`,
+              newType: rec.type,
+            }),
+          });
+        }
         if (!Object.prototype.hasOwnProperty.call(current, rec.subdomain)) {
           newSubdomains.add(rec.subdomain);
           updated = insertNewSubdomain(

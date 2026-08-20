@@ -1,12 +1,18 @@
 <script setup lang="ts">
 import {
+  addRecordCollision,
   bareDomain,
+  collisionBlocksAdd,
+  fmtDnsValue,
+  formatCollisionMessage,
   hasContact,
   isSubdomain,
   recordValueError,
   selfReferenceError,
   supportsCfProxy,
+  type CollisionRecord,
 } from "#shared/dns";
+import type { DnsMxValue, DnsRecordGroup, DnsValue } from "#shared/types/dns";
 
 export interface EditingRecord {
   subdomain: string;
@@ -22,10 +28,11 @@ const props = withDefaults(
   defineProps<{
     show: boolean;
     domain: string;
+    groups?: DnsRecordGroup[];
     editing?: EditingRecord | null;
     initialMode?: "edit" | "delete";
   }>(),
-  { initialMode: "edit" },
+  { initialMode: "edit", groups: () => [] },
 );
 const emit = defineEmits<{ close: [] }>();
 
@@ -186,6 +193,7 @@ const currentRecordValid = computed(() => {
   if (ttl !== "" && (!(Number(ttl) > 0) || !Number.isFinite(Number(ttl)))) return false;
   if (!isSubdomain(s)) return false;
   if (valueError.value) return false;
+  if (collisionBlocksAdd(collision.value)) return false;
   if (type === "MX") {
     const pref = Number(mxPreference);
     if (!Number.isFinite(pref) || pref < 0) return false;
@@ -210,6 +218,131 @@ const isValid = computed(() => {
   }
   return currentRecordValid.value;
 });
+
+interface ExistingRecord extends CollisionRecord {
+  ttl?: number;
+  proxied?: boolean;
+  mxPreference?: number;
+  contact?: string;
+  source: "existing" | "queued";
+}
+
+const isMxValue = (v: DnsValue): v is DnsMxValue => typeof v === "object" && v !== null;
+
+function recordValueString(type: string, v: DnsValue): { value: string; mxPreference?: number } {
+  if (type === "MX" && isMxValue(v)) {
+    return {
+      value: v.exchange ? String(v.exchange) : "",
+      mxPreference: Number(v.preference ?? v.priority ?? 10),
+    };
+  }
+  return { value: v === "" ? "" : fmtDnsValue(v) };
+}
+
+const existingAtName = computed<ExistingRecord[]>(() => {
+  const sub = form.value.subdomain.trim().toLowerCase();
+  if (!sub) return [];
+
+  const fromGroups = (props.groups ?? []).flatMap((g) => {
+    if (g.subdomain.toLowerCase() !== sub) return [];
+    return g.records.flatMap((r) =>
+      (r.values.length ? r.values : [""]).map((v) => {
+        const parsed = recordValueString(r.type, v);
+        return {
+          type: r.type,
+          value: parsed.value,
+          ttl: r.ttl,
+          proxied: r.proxied,
+          mxPreference: parsed.mxPreference,
+          contact: g.contact,
+          source: "existing" as const,
+        };
+      }),
+    );
+  });
+
+  const fromQueued = queued.value
+    .filter((q) => q.subdomain.toLowerCase() === sub)
+    .map((q) => ({
+      type: q.type,
+      value: q.value,
+      ttl: q.ttl,
+      proxied: q.proxied,
+      mxPreference: q.type === "MX" ? q.mxPreference : undefined,
+      source: "queued" as const,
+    }));
+
+  return [...fromGroups, ...fromQueued];
+});
+
+const collision = computed(() => {
+  if (isEdit.value || isDelete.value) return null;
+  const sub = form.value.subdomain.trim();
+  if (!sub) return null;
+  return addRecordCollision(existingAtName.value, form.value.type, form.value.value);
+});
+
+const collisionMessage = computed(() => {
+  const c = collision.value;
+  if (!c) return null;
+  const sub = form.value.subdomain.trim().toLowerCase();
+  return formatCollisionMessage(c, {
+    fqdn: `${sub}.${bare.value}`,
+    newType: form.value.type,
+  });
+});
+
+const overwriteTarget = computed<ExistingRecord | null>(() => {
+  if (!collision.value) return null;
+  const live = existingAtName.value.filter((r) => r.source === "existing");
+  if (live.length === 0) return null;
+
+  const want = form.value.type.toUpperCase();
+  const sameType = live.find((r) => r.type.toUpperCase() === want);
+  if (sameType) return sameType;
+
+  const cname = live.find((r) => {
+    const t = r.type.toUpperCase();
+    return t === "CNAME" || t === "ALIAS";
+  });
+  if (cname) return cname;
+
+  return live[0] ?? null;
+});
+
+const canOverwrite = computed(
+  () => !!overwriteTarget.value && queued.value.length === 0 && !isEdit.value && !isDelete.value,
+);
+
+function overwriteExisting() {
+  const target = overwriteTarget.value;
+  if (!target) return;
+
+  const sub = form.value.subdomain.trim().toLowerCase();
+  original.value = {
+    subdomain: sub,
+    type: target.type,
+    value: target.value,
+    ttl: target.ttl,
+    mxPreference: target.mxPreference,
+    proxied: target.proxied,
+    contact: target.contact,
+  };
+  mode.value = "edit";
+  queued.value = [];
+  form.value.subdomain = sub;
+  if (!form.value.contact.trim()) {
+    form.value.contact = target.contact?.trim() || loadContact();
+  }
+  if (!form.value.value.trim()) {
+    form.value.type = target.type;
+    form.value.value = target.value;
+    form.value.ttl = target.ttl ?? "";
+    form.value.mxPreference = target.mxPreference ?? 10;
+    form.value.proxied = target.proxied === true;
+    showAdvanced.value = target.ttl !== undefined;
+  }
+}
 
 /** True when the form differs from the original record being edited. */
 const hasChanges = computed(() => {
@@ -1029,6 +1162,34 @@ const valuePlaceholder = computed(() => {
               <p v-if="isEdit" class="mt-1 text-xs text-muted">Name can't be changed here.</p>
             </div>
           </div>
+
+          <div
+            v-if="collision && collisionMessage"
+            class="flex gap-2 rounded-lg border border-yellow/20 bg-yellow/10 p-3 text-yellow"
+            role="status"
+          >
+            <Icon name="material-symbols:warning" class="mt-0.5 shrink-0" size="1rem" />
+            <div class="min-w-0 space-y-2">
+              <p class="text-sm">{{ collisionMessage }}</p>
+              <button
+                v-if="canOverwrite"
+                type="button"
+                class="inline-flex min-h-9 items-center rounded-lg border border-yellow/30 bg-yellow/10 px-3 py-1.5 text-sm font-medium text-snow transition-colors hover:bg-yellow/20"
+                @click="overwriteExisting"
+              >
+                Overwrite existing record
+              </button>
+              <p v-else-if="queued.length > 0" class="text-xs text-yellow/80">
+                Remove the queued record for this name, or pick a different name.
+              </p>
+            </div>
+          </div>
+
+          <p v-if="isEdit && original" class="text-xs text-muted">
+            This pull request will replace the existing
+            <span class="font-medium text-snow">{{ original.type }}</span>
+            record ({{ original.value }}).
+          </p>
 
           <div class="flex flex-col gap-3 sm:flex-row">
             <div class="min-w-0 flex-1">

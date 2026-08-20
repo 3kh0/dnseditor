@@ -182,6 +182,104 @@ export function recordValueError(type: string, raw: unknown): string | null {
 
 const stripDot = (v: string) => v.trim().replace(/\.$/, "").toLowerCase();
 
+export interface CollisionRecord {
+  type: string;
+  value: string;
+}
+
+export type CollisionKind = "duplicate" | "cname" | "address";
+
+export interface RecordCollision {
+  kind: CollisionKind;
+  existing: CollisionRecord[];
+}
+
+const isCnameLike = (type: string) => {
+  const t = type.toUpperCase();
+  return t === "CNAME" || t === "ALIAS";
+};
+
+export function flattenYamlRecords(entry: unknown): CollisionRecord[] {
+  const records = (Array.isArray(entry) ? entry : [entry]).filter(isObj);
+  const out: CollisionRecord[] = [];
+  for (const r of records) {
+    const type = typeof r.type === "string" ? r.type : "UNKNOWN";
+    const src = r.values ?? r.value;
+    const values = Array.isArray(src) ? src : src == null ? [] : [src];
+    for (const v of values) {
+      if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
+        out.push({ type, value: String(v) });
+      } else if (isObj(v) && (typeof v.exchange === "string" || typeof v.exchange === "number")) {
+        out.push({ type, value: String(v.exchange) });
+      }
+    }
+  }
+  return out;
+}
+
+export function addRecordCollision(
+  existing: CollisionRecord[],
+  type: string,
+  value: string,
+): RecordCollision | null {
+  if (existing.length === 0) return null;
+
+  const t = type.toUpperCase();
+  const trimmed = String(value).trim();
+  const v = stripDot(trimmed);
+
+  if (trimmed) {
+    const dup = existing.filter(
+      (r) => r.type.toUpperCase() === t && stripDot(String(r.value)) === v,
+    );
+    if (dup.length) return { kind: "duplicate", existing: dup };
+  }
+
+  if (isCnameLike(t) || existing.some((r) => isCnameLike(r.type))) {
+    return { kind: "cname", existing };
+  }
+
+  if (t === "A" || t === "AAAA") {
+    const same = existing.filter((r) => r.type.toUpperCase() === t);
+    if (same.length) return { kind: "address", existing: same };
+  }
+
+  return null;
+}
+
+export function collisionBlocksAdd(c: RecordCollision | null | undefined): c is RecordCollision {
+  return !!c && c.kind !== "address";
+}
+
+function describeExisting(records: CollisionRecord[]): string {
+  const first = records[0];
+  if (!first) return "an existing record";
+  const extra = records.length > 1 ? ` (and ${records.length - 1} more)` : "";
+  const article = /^[AEIOU]/i.test(first.type) ? "an" : "a";
+  return `${article} ${first.type} record (${first.value})${extra}`;
+}
+
+export function formatCollisionMessage(
+  collision: RecordCollision,
+  opts: { fqdn: string; newType: string },
+): string {
+  const { fqdn, newType } = opts;
+  const t = newType.toUpperCase();
+  const shown = describeExisting(collision.existing);
+
+  switch (collision.kind) {
+    case "duplicate":
+      return `A ${t} record with that value already exists for ${fqdn}. If you meant to change it, overwrite the existing record instead of adding a new one.`;
+    case "cname":
+      if (isCnameLike(t)) {
+        return `${fqdn} already has ${shown}. A CNAME cannot share a name with another record. If you meant to replace it, overwrite the existing record instead.`;
+      }
+      return `${fqdn} already has ${shown}. Adding a ${t} record here would collide with the CNAME. If you meant to replace it, overwrite the existing record instead.`;
+    case "address":
+      return `${fqdn} already has ${shown}. Adding another ${t} record will leave both addresses in DNS. If you meant to replace the existing one, overwrite it instead.`;
+  }
+}
+
 export function selfReferenceError(
   type: string,
   value: unknown,
