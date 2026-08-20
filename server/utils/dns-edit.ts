@@ -1,5 +1,5 @@
 import YAML from "yaml";
-import { hasContact, isObj } from "#shared/dns";
+import { escapeTxtSemicolons, hasContact, isObj } from "#shared/dns";
 
 export { hasContact as hasContactInfo, isObj as isPlainObject };
 
@@ -16,6 +16,7 @@ export function normalizeRecordValue(type: string, raw: unknown, mxPref: number)
   }
 
   if ((type === "CNAME" || type === "ALIAS" || type === "MX") && !v.endsWith(".")) v = `${v}.`;
+  if (type === "TXT") v = escapeTxtSemicolons(v);
   return v;
 }
 
@@ -415,7 +416,8 @@ function valueMatches(raw: unknown, match: RecordMatch): boolean {
   return Number.isFinite(pref) && pref === match.mxPreference;
 }
 
-const normalizeCompare = (v: string) => v.trim().replace(/\.$/, "").toLowerCase();
+const normalizeCompare = (v: string) =>
+  v.trim().replace(/\.$/, "").toLowerCase().replace(/\\;/g, ";");
 
 function serializeSubdomainBlock(subdomain: string, contact: string, entry: unknown): string[] {
   const header = `${formatYamlKey(subdomain)}: # ${contact}`;

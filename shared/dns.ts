@@ -130,6 +130,8 @@ const hasControlChar = (v: string) =>
     return code < 0x20 || code === 0x7f;
   });
 
+export const escapeTxtSemicolons = (v: string) => v.replace(/(?<!\\);/g, "\\;");
+
 export function recordValueError(type: string, raw: unknown): string | null {
   if (typeof raw !== "string" && typeof raw !== "number" && typeof raw !== "boolean") {
     return "Value must be text.";
@@ -182,6 +184,8 @@ export function recordValueError(type: string, raw: unknown): string | null {
 
 const stripDot = (v: string) => v.trim().replace(/\.$/, "").toLowerCase();
 
+const cmpValue = (v: string) => stripDot(v).replace(/\\;/g, ";");
+
 export interface CollisionRecord {
   type: string;
   value: string;
@@ -222,7 +226,7 @@ export function sameRecordTarget(
   b: { type: string; value: string; mxPreference?: number },
 ): boolean {
   if (a.type.toUpperCase() !== b.type.toUpperCase()) return false;
-  if (stripDot(String(a.value)) !== stripDot(String(b.value))) return false;
+  if (cmpValue(String(a.value)) !== cmpValue(String(b.value))) return false;
   if (a.type.toUpperCase() !== "MX") return true;
   if (a.mxPreference === undefined || b.mxPreference === undefined) return true;
   return Number(a.mxPreference) === Number(b.mxPreference);
@@ -237,11 +241,11 @@ export function addRecordCollision(
 
   const t = type.toUpperCase();
   const trimmed = String(value).trim();
-  const v = stripDot(trimmed);
+  const v = cmpValue(trimmed);
 
   if (trimmed) {
     const dup = existing.filter(
-      (r) => r.type.toUpperCase() === t && stripDot(String(r.value)) === v,
+      (r) => r.type.toUpperCase() === t && cmpValue(String(r.value)) === v,
     );
     if (dup.length) return { kind: "duplicate", existing: dup };
   }
