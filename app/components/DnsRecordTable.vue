@@ -48,6 +48,8 @@ const desktopLimit = ref(DESKTOP_PAGE_SIZE);
 const isMobile = ref(true);
 const openMenu = ref<number | null>(null);
 let mobileMedia: MediaQueryList | null = null;
+const sentinel = ref<HTMLElement | null>(null);
+let scrollObserver: IntersectionObserver | null = null;
 
 const bare = computed(() => bareDomain(props.domain));
 
@@ -94,19 +96,45 @@ function onDocKeydown(event: KeyboardEvent) {
   if (event.key === "Escape") closeMenu();
 }
 
+function loadMore() {
+  if (isMobile.value) {
+    mobileLimit.value += MOBILE_PAGE_SIZE;
+  } else {
+    desktopLimit.value += DESKTOP_PAGE_SIZE;
+  }
+  nextTick(() => setupObserver());
+}
+
+function setupObserver() {
+  scrollObserver?.disconnect();
+  if (sentinel.value) {
+    scrollObserver = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) loadMore();
+      },
+      { rootMargin: "300px" },
+    );
+    scrollObserver.observe(sentinel.value);
+  }
+}
+
 onMounted(() => {
   mobileMedia = window.matchMedia("(max-width: 767px)");
   updateMobileLayout(mobileMedia);
   mobileMedia.addEventListener("change", updateMobileLayout);
   document.addEventListener("pointerdown", onDocPointerDown);
   document.addEventListener("keydown", onDocKeydown);
+  setupObserver();
 });
 
 onBeforeUnmount(() => {
   mobileMedia?.removeEventListener("change", updateMobileLayout);
   document.removeEventListener("pointerdown", onDocPointerDown);
   document.removeEventListener("keydown", onDocKeydown);
+  scrollObserver?.disconnect();
 });
+
+watch(sentinel, setupObserver);
 
 watch([() => props.groups, () => props.searchQuery], () => {
   mobileLimit.value = MOBILE_PAGE_SIZE;
@@ -330,15 +358,7 @@ function contentText(row: Row): string {
         </article>
       </div>
 
-      <div v-if="mobileRows.length < rows.length" class="pt-2">
-        <button
-          type="button"
-          class="min-h-11 w-full rounded-xl border border-border bg-dark px-4 text-sm font-medium text-snow active:bg-darkless"
-          @click="mobileLimit += MOBILE_PAGE_SIZE"
-        >
-          Show {{ Math.min(MOBILE_PAGE_SIZE, rows.length - mobileRows.length) }} more records
-        </button>
-      </div>
+      <div v-if="mobileRows.length < rows.length" ref="sentinel" class="h-1" aria-hidden="true" />
     </div>
 
     <div v-else class="hidden overflow-hidden rounded-lg border border-border bg-dark md:block">
@@ -473,15 +493,7 @@ function contentText(row: Row): string {
         </table>
       </div>
 
-      <div v-if="desktopRows.length < rows.length" class="border-t border-border p-3">
-        <button
-          type="button"
-          class="w-full cursor-pointer rounded-lg border border-border bg-darker px-4 py-2 text-sm font-medium text-snow transition-colors hover:bg-darkless"
-          @click="desktopLimit += DESKTOP_PAGE_SIZE"
-        >
-          Show {{ Math.min(DESKTOP_PAGE_SIZE, rows.length - desktopRows.length) }} more records
-        </button>
-      </div>
+      <div v-if="desktopRows.length < rows.length" ref="sentinel" class="h-1" aria-hidden="true" />
     </div>
   </div>
 </template>
