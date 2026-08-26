@@ -114,18 +114,57 @@ const bare = computed(() => bareDomain(selectedDomain.value));
 
 const searchable = (v: DnsValue) => fmtDnsValue(v).toLocaleLowerCase();
 
-const matched = computed(() => {
-  const q = searchQuery.value.trim().toLocaleLowerCase();
-  if (!q) return records.value;
+// Relevance tiers. Name matches always outrank record-content matches, so the
+// subdomain you're looking for floats to the top instead of drowning under
+// records that merely happen to contain the query inside a long value.
+const SCORE = { nameExact: 100, namePrefix: 80, namePart: 55, typeHit: 30, valueHit: 15 } as const;
 
-  return records.value.filter(
-    (g) =>
-      g.subdomain.toLocaleLowerCase().includes(q) ||
-      g.records.some(
-        (r) =>
-          r.type.toLocaleLowerCase().includes(q) || r.values.some((v) => searchable(v).includes(q)),
-      ),
-  );
+const matched = computed(() => {
+  const raw = searchQuery.value.trim().toLocaleLowerCase();
+  if (!raw) return records.value;
+
+  const b = bare.value.toLocaleLowerCase();
+  // Let people paste a full FQDN — strip the trailing bare domain so
+  // "de.hackclub.com" (or the root "hackclub.com") targets the right name.
+  let nameQ = raw;
+  if (raw === b) nameQ = "@";
+  else if (raw.endsWith(`.${b}`)) nameQ = raw.slice(0, -(b.length + 1)) || "@";
+
+  const scored: { group: DnsRecordGroup; score: number }[] = [];
+
+  for (const g of records.value) {
+    const label = g.subdomain.toLocaleLowerCase() || "@";
+
+    let score = 0;
+    if (label === nameQ) score = SCORE.nameExact;
+    else if (label.startsWith(nameQ)) score = SCORE.namePrefix;
+    else if (label.includes(nameQ)) score = SCORE.namePart;
+
+    // A name hit shows the whole subdomain — every record under it is relevant.
+    if (score > 0) {
+      scored.push({ group: g, score });
+      continue;
+    }
+
+    // Otherwise keep only the records that actually match, so a single value
+    // hit doesn't drag the subdomain's entire (often huge) record set along.
+    const hits = g.records.filter(
+      (r) =>
+        r.type.toLocaleLowerCase().includes(raw) ||
+        r.values.some((v) => searchable(v).includes(raw)),
+    );
+    if (hits.length) {
+      const typeHit = hits.some((r) => r.type.toLocaleLowerCase().includes(raw));
+      scored.push({
+        group: { ...g, records: hits },
+        score: typeHit ? SCORE.typeHit : SCORE.valueHit,
+      });
+    }
+  }
+
+  // Stable sort keeps the original file order within a tier.
+  scored.sort((a, b) => b.score - a.score);
+  return scored.map((s) => s.group);
 });
 </script>
 
