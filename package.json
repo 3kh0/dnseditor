@@ -28,7 +28,7 @@
     "yaml": "^2.7.1"
   },
   "devDependencies": {
-    "@nuxt/icon": "^2.4.1",
+    "@nuxt/icon": "^2.5.1",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.2.0",
     "oxfmt": "^0.64.0",
