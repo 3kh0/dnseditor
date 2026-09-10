@@ -117,6 +117,13 @@ const cnamePresets = [
     proxyByDefault: true,
   },
   {
+    id: "coolify-limited-a",
+    label: "Coolify limited A",
+    value: "a.limited.selfhosted.hackclub.com.",
+    icon: "coolify-limited-a" as const,
+    proxyByDefault: true,
+  },
+  {
     id: "coolify-b",
     label: "Coolify B",
     value: "b.selfhosted.hackclub.com.",
@@ -1331,11 +1338,20 @@ const valuePlaceholder = computed(() => {
                   @click="applyCnamePreset(preset)"
                 >
                   <span
-                    v-if="preset.icon === 'coolify-a' || preset.icon === 'coolify-b'"
-                    class="flex size-4 shrink-0 items-center justify-center rounded-full bg-primary/25 text-[10px] font-bold leading-none text-primary"
+                    v-if="
+                      preset.icon === 'coolify-a' ||
+                      preset.icon === 'coolify-limited-a' ||
+                      preset.icon === 'coolify-b'
+                    "
+                    class="flex size-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold leading-none"
+                    :class="
+                      preset.icon === 'coolify-limited-a'
+                        ? 'bg-red/25 text-red'
+                        : 'bg-primary/25 text-primary'
+                    "
                     aria-hidden="true"
                   >
-                    {{ preset.icon === "coolify-a" ? "A" : "B" }}
+                    {{ preset.icon === "coolify-b" ? "B" : "A" }}
                   </span>
 
                   <OrchardIcon v-else-if="preset.icon === 'orchard'" />

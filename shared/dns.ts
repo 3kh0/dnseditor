@@ -313,11 +313,12 @@ export function selfReferenceError(
 
 export const fmtDnsValue = (v: unknown) => (typeof v === "object" ? JSON.stringify(v) : String(v));
 
-export type CnameProvider = "vercel" | "coolify-a" | "coolify-b" | "orchard";
+export type CnameProvider = "vercel" | "coolify-a" | "coolify-limited-a" | "coolify-b" | "orchard";
 
 export const CNAME_PROVIDER_LABELS: Record<CnameProvider, string> = {
   vercel: "Vercel",
   "coolify-a": "Coolify A",
+  "coolify-limited-a": "Coolify limited A",
   "coolify-b": "Coolify B",
   orchard: "Orchard",
 };
@@ -330,6 +331,8 @@ export function detectCnameProvider(type: string, value: unknown): CnameProvider
   if (v.includes("vercel-dns")) return "vercel";
 
   if (v === "a.ingress.tier2.infra.hackclub.com") return "orchard";
+
+  if (v === "a.limited.selfhosted.hackclub.com") return "coolify-limited-a";
 
   if (
     v === "b.selfhosted.hackclub.com" ||
