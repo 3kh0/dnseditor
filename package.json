@@ -31,7 +31,7 @@
     "@nuxt/icon": "^2.5.1",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.5.1",
-    "oxfmt": "^0.67.0",
+    "oxfmt": "^0.68.0",
     "oxlint": "^1.82.0",
     "tailwindcss": "^4.3.3",
     "vue-tsc": "^3.3.11"
