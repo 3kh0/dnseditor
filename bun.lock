@@ -7,7 +7,7 @@
       "dependencies": {
         "@iconify-json/icon-park-outline": "^1.2.4",
         "@iconify-json/material-symbols": "^1.2.93",
-        "@iconify-json/simple-icons": "^1.2.97",
+        "@iconify-json/simple-icons": "^1.2.98",
         "@octokit/rest": "^22.0.1",
         "@vercel/analytics": "^2.0.1",
         "@vercel/speed-insights": "^2.0.0",
@@ -153,7 +153,7 @@
 
     "@iconify-json/material-symbols": ["@iconify-json/material-symbols@1.2.93", "", { "dependencies": { "@iconify/types": "*" } }, "sha512-IfbpRixmEdeBrl2Bc+RtNZGb3NcTnMiPP4WausCParQYpIdezEYYbgMggJC1cYzm1q0f77p53t5tppy9PWsrvQ=="],
 
-    "@iconify-json/simple-icons": ["@iconify-json/simple-icons@1.2.97", "", { "dependencies": { "@iconify/types": "*" } }, "sha512-Z6PmM6jvWVU7rmLzqbxCLJA7SeqCnK6lMHXtjyzHPLZebwuoojBEcHHycppahDzEeN9xujRkrV5J8QpOhMyNrg=="],
+    "@iconify-json/simple-icons": ["@iconify-json/simple-icons@1.2.98", "", { "dependencies": { "@iconify/types": "*" } }, "sha512-35CEBG1H/3nsohVgJaRWtOZ/P5syRTL++ZXTISdQSC76o1mAFXngFoSm9EOnnBiDApKPu8WN/DY+z69yCycL9A=="],
 
     "@iconify/collections": ["@iconify/collections@1.0.740", "", { "dependencies": { "@iconify/types": "*" } }, "sha512-Ii3yGubTNwy6z4NGjGiSWIuVNEopOJVKcUehmxanIEIRUbza5fBELhK+ARzX8K5ZQWpNw/0kRqL605vYloCNnw=="],
 
