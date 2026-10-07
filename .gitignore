@@ -1,10 +1,8 @@
-# Nuxt dev/build outputs
-.output
-.data
-.nuxt
-.nitro
-.cache
-dist
+# Next.js build outputs
+.next
+out
+next-env.d.ts
+*.tsbuildinfo
 
 # Node dependencies
 node_modules

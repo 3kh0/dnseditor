@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["typescript", "unicorn", "oxc", "vue"],
+  "plugins": ["typescript", "unicorn", "oxc", "react", "nextjs"],
   "categories": {
     "correctness": "error"
   },
@@ -8,5 +8,5 @@
   "env": {
     "builtin": true
   },
-  "ignorePatterns": [".nuxt/**", ".output/**", "dist/**", "node_modules/**"]
+  "ignorePatterns": [".next/**", "out/**", "node_modules/**"]
 }

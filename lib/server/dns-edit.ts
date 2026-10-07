@@ -1,18 +1,19 @@
 import YAML from "yaml";
-import { escapeTxtSemicolons, hasContact, isObj } from "#shared/dns";
+import { escapeTxtSemicolons, hasContact, isObj } from "@/shared/dns";
+import { httpError } from "./http";
 
 export { hasContact as hasContactInfo, isObj as isPlainObject };
 
 export function normalizeRecordValue(type: string, raw: unknown, mxPref: number) {
   if (typeof raw !== "string" && typeof raw !== "number" && typeof raw !== "boolean") {
-    throw createError({ statusCode: 400, message: "Record value must be a string" });
+    throw httpError({ statusCode: 400, message: "Record value must be a string" });
   }
 
   let v = String(raw).trim();
-  if (!v) throw createError({ statusCode: 400, message: "Record value cannot be empty" });
+  if (!v) throw httpError({ statusCode: 400, message: "Record value cannot be empty" });
 
   if (type === "MX" && (!Number.isFinite(mxPref) || mxPref < 0)) {
-    throw createError({ statusCode: 400, message: "MX preference must be a non-negative number" });
+    throw httpError({ statusCode: 400, message: "MX preference must be a non-negative number" });
   }
 
   if ((type === "CNAME" || type === "ALIAS" || type === "MX") && !v.endsWith(".")) v = `${v}.`;
@@ -24,7 +25,7 @@ export function parseOptionalTtl(raw: unknown): number | undefined {
   if (raw === undefined || raw === null || raw === "") return undefined;
   const ttl = Number(raw);
   if (!Number.isFinite(ttl) || ttl <= 0) {
-    throw createError({ statusCode: 400, message: "TTL must be a positive number when set" });
+    throw httpError({ statusCode: 400, message: "TTL must be a positive number when set" });
   }
   return ttl;
 }
@@ -138,7 +139,7 @@ export function replaceExistingRecord(
   const top = findTopKeys(lines);
   const idx = top.findIndex((e) => e.key === subdomain);
   if (idx === -1) {
-    throw createError({ statusCode: 404, message: `Subdomain "${subdomain}" not found` });
+    throw httpError({ statusCode: 404, message: `Subdomain "${subdomain}" not found` });
   }
 
   const keyIdx = top[idx]!.i;
@@ -152,7 +153,7 @@ export function replaceExistingRecord(
   try {
     parsed = parseYamlBlock(blockText);
   } catch (e) {
-    throw createError({
+    throw httpError({
       statusCode: 500,
       message: `Failed to parse subdomain block for "${subdomain}"`,
       cause: e,
@@ -160,7 +161,7 @@ export function replaceExistingRecord(
   }
 
   if (!isObj(parsed) || !Object.prototype.hasOwnProperty.call(parsed, subdomain)) {
-    throw createError({
+    throw httpError({
       statusCode: 500,
       message: `Could not parse subdomain entry for "${subdomain}"`,
     });
@@ -178,7 +179,7 @@ export function removeExistingRecord(content: string, subdomain: string, match: 
   const top = findTopKeys(lines);
   const idx = top.findIndex((e) => e.key === subdomain);
   if (idx === -1) {
-    throw createError({ statusCode: 404, message: `Subdomain "${subdomain}" not found` });
+    throw httpError({ statusCode: 404, message: `Subdomain "${subdomain}" not found` });
   }
 
   const keyIdx = top[idx]!.i;
@@ -192,7 +193,7 @@ export function removeExistingRecord(content: string, subdomain: string, match: 
   try {
     parsed = parseYamlBlock(blockText);
   } catch (e) {
-    throw createError({
+    throw httpError({
       statusCode: 500,
       message: `Failed to parse subdomain block for "${subdomain}"`,
       cause: e,
@@ -200,7 +201,7 @@ export function removeExistingRecord(content: string, subdomain: string, match: 
   }
 
   if (!isObj(parsed) || !Object.prototype.hasOwnProperty.call(parsed, subdomain)) {
-    throw createError({
+    throw httpError({
       statusCode: 500,
       message: `Could not parse subdomain entry for "${subdomain}"`,
     });
@@ -263,7 +264,7 @@ function removeMatchingItem(entry: unknown, match: RecordMatch): unknown {
   }
 
   if (!found) {
-    throw createError({
+    throw httpError({
       statusCode: 404,
       message: `No matching ${matchType} record with that value was found under this subdomain — it changed since the record list was loaded. Reload and try again.`,
     });
@@ -329,7 +330,7 @@ function mutateEntry(entry: unknown, match: RecordMatch, replacement: Replacemen
   }
 
   if (!found) {
-    throw createError({
+    throw httpError({
       statusCode: 404,
       message: `No matching ${matchType} record with that value was found under this subdomain — it changed since the record list was loaded. Reload and try again.`,
     });

@@ -1,6 +1,6 @@
 # Hack Club DNS Editor
 
-A Nuxt app for browsing Hack Club's DNS records and opening pull requests to add subdomains on [`hackclub/dns`](https://github.com/hackclub/dns).
+A Next.js app (built with Cloudflare's [Kumo](https://github.com/cloudflare/kumo) UI) for browsing Hack Club's DNS records and opening pull requests to add subdomains on [`hackclub/dns`](https://github.com/hackclub/dns).
 
 ## Development
 

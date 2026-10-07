@@ -1,5 +1,6 @@
 import { Octokit } from "@octokit/rest";
-import type { H3Event } from "h3";
+import { env } from "./env";
+import { httpError, type Ctx } from "./http";
 import type { SessionData } from "./session";
 import {
   clearAppSessionCookie,
@@ -35,38 +36,23 @@ export interface AppBotIdentity {
   htmlUrl: string;
 }
 
-const env = (...keys: string[]) => {
-  for (const k of keys) {
-    const v = process.env[k];
-    if (v) return v;
-  }
-  return "";
-};
-
 const str = (v: unknown, fallback = "") => String(v || fallback);
 
-export function getUpstreamRepo(event: H3Event): UpstreamRepo {
-  const c = useRuntimeConfig(event);
+export function getUpstreamRepo(): UpstreamRepo {
   return {
-    owner: str(c.dnsGithubOwner || env("NUXT_DNS_GITHUB_OWNER", "DNS_GITHUB_OWNER"), "hackclub"),
-    repo: str(c.dnsGithubRepo || env("NUXT_DNS_GITHUB_REPO", "DNS_GITHUB_REPO"), "dns"),
-    branch: str(c.dnsGithubBranch || env("NUXT_DNS_GITHUB_BRANCH", "DNS_GITHUB_BRANCH"), "main"),
+    owner: str(env("NUXT_DNS_GITHUB_OWNER", "DNS_GITHUB_OWNER"), "hackclub"),
+    repo: str(env("NUXT_DNS_GITHUB_REPO", "DNS_GITHUB_REPO"), "dns"),
+    branch: str(env("NUXT_DNS_GITHUB_BRANCH", "DNS_GITHUB_BRANCH"), "main"),
   };
 }
 
-export function getGitHubAppConfig(event: H3Event): GitHubAppConfig {
-  const c = useRuntimeConfig(event);
-  const clientId = str(
-    c.githubAppClientId || env("NUXT_GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_ID"),
-  );
-  const clientSecret = str(
-    c.githubAppClientSecret || env("NUXT_GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_CLIENT_SECRET"),
-  );
-  const appSlug =
-    str(c.githubAppSlug || env("NUXT_GITHUB_APP_SLUG", "GITHUB_APP_SLUG")) || undefined;
+export function getGitHubAppConfig(): GitHubAppConfig {
+  const clientId = env("NUXT_GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_ID");
+  const clientSecret = env("NUXT_GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_CLIENT_SECRET");
+  const appSlug = env("NUXT_GITHUB_APP_SLUG", "GITHUB_APP_SLUG") || undefined;
 
   if (!clientId || !clientSecret) {
-    throw createError({
+    throw httpError({
       statusCode: 500,
       message:
         "Server is missing GitHub App credentials (GITHUB_APP_CLIENT_ID / GITHUB_APP_CLIENT_SECRET)",
@@ -75,9 +61,9 @@ export function getGitHubAppConfig(event: H3Event): GitHubAppConfig {
   return { clientId, clientSecret, appSlug };
 }
 
-export function getInstallUrl(event: H3Event): string | null {
+export function getInstallUrl(): string | null {
   try {
-    const { appSlug } = getGitHubAppConfig(event);
+    const { appSlug } = getGitHubAppConfig();
     return appSlug ? `https://github.com/apps/${appSlug}/installations/new?state=dns-editor` : null;
   } catch {
     return null;
@@ -90,16 +76,8 @@ export const getManualForkUrl = (owner: string, repo: string) =>
 export const getInstallationManageUrl = (installationId: number) =>
   `https://github.com/settings/installations/${installationId}`;
 
-export async function getAppBotIdentity(
-  octokit: Octokit,
-  event: H3Event,
-): Promise<AppBotIdentity | null> {
-  let appSlug: string | undefined;
-  try {
-    appSlug = getGitHubAppConfig(event).appSlug;
-  } catch {
-    appSlug = env("NUXT_GITHUB_APP_SLUG", "GITHUB_APP_SLUG") || undefined;
-  }
+export async function getAppBotIdentity(octokit: Octokit): Promise<AppBotIdentity | null> {
+  const appSlug = env("NUXT_GITHUB_APP_SLUG", "GITHUB_APP_SLUG");
   if (!appSlug) return null;
 
   const login = `${appSlug}[bot]`;
@@ -133,12 +111,9 @@ export function formatCommitMessageWithBotCoAuthor(
   return parts.join("\n");
 }
 
-export function getAppBaseUrl(event: H3Event): string {
-  const c = useRuntimeConfig(event);
-  const configured = str(c.public?.appUrl || process.env.NUXT_PUBLIC_APP_URL).replace(/\/$/, "");
-  if (configured) return configured;
-  const url = getRequestURL(event);
-  return `${url.protocol}//${url.host}`;
+export function getAppBaseUrl(ctx: Ctx): string {
+  const configured = env("NUXT_PUBLIC_APP_URL", "APP_URL").replace(/\/$/, "");
+  return configured || ctx.url.origin;
 }
 
 export function createUserOctokit(accessToken: string) {
@@ -148,7 +123,7 @@ export function createUserOctokit(accessToken: string) {
 
 export function assertGitHubAppUserAccessToken(token: string): void {
   if (!token.startsWith("ghu_")) {
-    throw createError({
+    throw httpError({
       statusCode: 401,
       message:
         "Expected a GitHub App user access token (ghu_…). " +
@@ -173,14 +148,14 @@ async function oauthToken(body: Record<string, string>): Promise<{
   expiresIn?: number;
   refreshTokenExpiresIn?: number;
 }> {
-  const res = await $fetch<TokenRes>("https://github.com/login/oauth/access_token", {
+  const res = (await fetch("https://github.com/login/oauth/access_token", {
     method: "POST",
-    headers: { Accept: "application/json" },
-    body,
-  });
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }).then((r) => r.json())) as TokenRes;
 
   if (res.error || !res.access_token) {
-    throw createError({
+    throw httpError({
       statusCode: body.grant_type === "refresh_token" ? 401 : 400,
       message: res.error_description || res.error || "Failed to exchange OAuth code",
     });
@@ -195,24 +170,24 @@ async function oauthToken(body: Record<string, string>): Promise<{
   };
 }
 
-export async function exchangeOAuthCode(event: H3Event, code: string, codeVerifier?: string) {
-  const { clientId, clientSecret } = getGitHubAppConfig(event);
+export async function exchangeOAuthCode(ctx: Ctx, code: string, codeVerifier?: string) {
+  const { clientId, clientSecret } = getGitHubAppConfig();
   const body: Record<string, string> = {
     client_id: clientId,
     client_secret: clientSecret,
     code,
-    redirect_uri: `${getAppBaseUrl(event)}/api/auth/callback`,
+    redirect_uri: `${getAppBaseUrl(ctx)}/api/auth/callback`,
   };
   if (codeVerifier) body.code_verifier = codeVerifier;
   return oauthToken(body);
 }
 const inflightRefresh = new Map<string, Promise<Awaited<ReturnType<typeof oauthToken>>>>();
 
-export async function refreshUserAccessToken(event: H3Event, refreshToken: string) {
+export async function refreshUserAccessToken(refreshToken: string) {
   const shared = inflightRefresh.get(refreshToken);
   if (shared) return shared;
 
-  const { clientId, clientSecret } = getGitHubAppConfig(event);
+  const { clientId, clientSecret } = getGitHubAppConfig();
   const request = oauthToken({
     client_id: clientId,
     client_secret: clientSecret,
@@ -229,16 +204,12 @@ export async function refreshUserAccessToken(event: H3Event, refreshToken: strin
 }
 
 export async function forceRefreshSession(
-  event: H3Event,
+  ctx: Ctx,
   session: SessionData,
 ): Promise<SessionData | null> {
   if (!session.refreshToken) return null;
   try {
-    return applyRefreshedTokens(
-      event,
-      session,
-      await refreshUserAccessToken(event, session.refreshToken),
-    );
+    return applyRefreshedTokens(ctx, session, await refreshUserAccessToken(session.refreshToken));
   } catch (e) {
     console.warn(`[auth] force token refresh failed: ${githubErrorMessage(e)}`);
     return null;
@@ -246,11 +217,11 @@ export async function forceRefreshSession(
 }
 
 function applyRefreshedTokens(
-  event: H3Event,
+  ctx: Ctx,
   session: SessionData,
   tokens: Awaited<ReturnType<typeof oauthToken>>,
 ): SessionData {
-  return setAppSessionCookie(event, {
+  return setAppSessionCookie(ctx, {
     ...session,
     accessToken: tokens.accessToken,
     refreshToken: tokens.refreshToken ?? session.refreshToken,
@@ -258,10 +229,10 @@ function applyRefreshedTokens(
   });
 }
 
-export async function requireUserSession(event: H3Event): Promise<SessionData> {
-  const session = getAppSession(event);
+export async function requireUserSession(ctx: Ctx): Promise<SessionData> {
+  const session = getAppSession(ctx);
   if (!session) {
-    throw createError({
+    throw httpError({
       statusCode: 401,
       message: "Sign in with GitHub to open a pull request",
       data: { code: "AUTH_REQUIRED" },
@@ -271,7 +242,7 @@ export async function requireUserSession(event: H3Event): Promise<SessionData> {
   try {
     assertGitHubAppUserAccessToken(session.accessToken);
   } catch {
-    throw createError({
+    throw httpError({
       statusCode: 401,
       message: "Your session is not a GitHub App user token. Sign out and sign in again.",
       data: { code: "INVALID_TOKEN_TYPE" },
@@ -283,17 +254,13 @@ export async function requireUserSession(event: H3Event): Promise<SessionData> {
     session.expiresAt - Date.now() < 5 * 60 * 1000 &&
     !!session.refreshToken;
 
-  if (!needsRefresh) return touchAppSessionCookie(event, session);
+  if (!needsRefresh) return touchAppSessionCookie(ctx, session);
 
   try {
-    return applyRefreshedTokens(
-      event,
-      session,
-      await refreshUserAccessToken(event, session.refreshToken!),
-    );
+    return applyRefreshedTokens(ctx, session, await refreshUserAccessToken(session.refreshToken!));
   } catch {
-    clearAppSessionCookie(event);
-    throw createError({
+    clearAppSessionCookie(ctx);
+    throw httpError({
       statusCode: 401,
       message: "GitHub session expired. Sign in again.",
       data: { code: "AUTH_REQUIRED" },
@@ -404,7 +371,7 @@ export async function requireUserFork(
   const existing = await findUserFork(octokit, login, upstreamOwner, upstreamRepo);
   if (existing) return existing;
 
-  throw createError({
+  throw httpError({
     statusCode: 409,
     message: `No fork of ${upstreamOwner}/${upstreamRepo} found on your account. Fork it on GitHub first, then try again.`,
     data: {
@@ -432,7 +399,7 @@ export async function syncForkWithUpstream(octokit: Octokit, fork: ForkInfo, bra
       `[sync] merge-upstream skipped/failed for ${fork.fullName}#${branch} (status ${status ?? "?"}): ${githubErrorMessage(e)}`,
     );
     if (/without [`']?workflows[`']? permission/i.test(githubErrorMessage(e))) {
-      throw createError({
+      throw httpError({
         statusCode: 403,
         message:
           "The GitHub App needs read and write access to workflows before it can sync your fork.",

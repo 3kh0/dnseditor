@@ -1,5 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
-import type { H3Event } from "h3";
+import { env } from "./env";
+import { httpError, type Ctx } from "./http";
 
 export const SESSION_COOKIE = "dnseditor_session";
 export const OAUTH_STATE_COOKIE = "dnseditor_oauth_state";
@@ -29,19 +30,16 @@ const cookieOpts = (maxAge: number) => ({
   maxAge,
 });
 
-function sessionKey(event: H3Event): Buffer {
-  const c = useRuntimeConfig(event);
-  const secret =
-    (typeof c.sessionSecret === "string" && c.sessionSecret) ||
-    process.env.NUXT_SESSION_SECRET ||
-    process.env.SESSION_SECRET ||
-    (typeof c.githubAppClientSecret === "string" && c.githubAppClientSecret) ||
-    process.env.NUXT_GITHUB_APP_CLIENT_SECRET ||
-    process.env.GITHUB_APP_CLIENT_SECRET ||
-    "";
+function sessionKey(): Buffer {
+  const secret = env(
+    "NUXT_SESSION_SECRET",
+    "SESSION_SECRET",
+    "NUXT_GITHUB_APP_CLIENT_SECRET",
+    "GITHUB_APP_CLIENT_SECRET",
+  );
 
   if (!secret) {
-    throw createError({
+    throw httpError({
       statusCode: 500,
       message: "Missing SESSION_SECRET / GITHUB_APP_CLIENT_SECRET for session encryption",
     });
@@ -49,8 +47,8 @@ function sessionKey(event: H3Event): Buffer {
   return createHash("sha256").update(secret).digest();
 }
 
-export function sealAppSession(event: H3Event, data: SessionData): string {
-  const key = sessionKey(event);
+export function sealAppSession(data: SessionData): string {
+  const key = sessionKey();
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", key, iv);
   const pt = Buffer.from(JSON.stringify(data), "utf8");
@@ -58,9 +56,9 @@ export function sealAppSession(event: H3Event, data: SessionData): string {
   return Buffer.concat([iv, cipher.getAuthTag(), enc]).toString("base64url");
 }
 
-export function unsealAppSession(event: H3Event, token: string): SessionData | null {
+export function unsealAppSession(token: string): SessionData | null {
   try {
-    const key = sessionKey(event);
+    const key = sessionKey();
     const buf = Buffer.from(token, "base64url");
     if (buf.length < 28) return null;
 
@@ -79,35 +77,35 @@ export function unsealAppSession(event: H3Event, token: string): SessionData | n
   }
 }
 
-export function setAppSessionCookie(event: H3Event, data: SessionData) {
+export function setAppSessionCookie(ctx: Ctx, data: SessionData) {
   const next = { ...data, issuedAt: Date.now() };
-  setCookie(event, SESSION_COOKIE, sealAppSession(event, next), cookieOpts(MAX_AGE));
+  ctx.setCookie(SESSION_COOKIE, sealAppSession(next), cookieOpts(MAX_AGE));
   return next;
 }
 
-export function touchAppSessionCookie(event: H3Event, data: SessionData): SessionData {
+export function touchAppSessionCookie(ctx: Ctx, data: SessionData): SessionData {
   if (data.issuedAt && Date.now() - data.issuedAt < 60 * 60 * 24 * 1000) return data;
-  return setAppSessionCookie(event, data);
+  return setAppSessionCookie(ctx, data);
 }
 
-export function clearAppSessionCookie(event: H3Event) {
-  deleteCookie(event, SESSION_COOKIE, { path: "/" });
+export function clearAppSessionCookie(ctx: Ctx) {
+  ctx.deleteCookie(SESSION_COOKIE);
 }
 
-export function getAppSession(event: H3Event): SessionData | null {
-  const raw = getCookie(event, SESSION_COOKIE);
-  return raw ? unsealAppSession(event, raw) : null;
+export function getAppSession(ctx: Ctx): SessionData | null {
+  const raw = ctx.getCookie(SESSION_COOKIE);
+  return raw ? unsealAppSession(raw) : null;
 }
 
-export function setOAuthStateCookie(event: H3Event, payload: OAuthStatePayload) {
+export function setOAuthStateCookie(ctx: Ctx, payload: OAuthStatePayload) {
   const sealed = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
-  setCookie(event, OAUTH_STATE_COOKIE, sealed, cookieOpts(60 * 10));
+  ctx.setCookie(OAUTH_STATE_COOKIE, sealed, cookieOpts(60 * 10));
   return sealed;
 }
 
-export function consumeOAuthStateCookie(event: H3Event): OAuthStatePayload | null {
-  const raw = getCookie(event, OAUTH_STATE_COOKIE);
-  deleteCookie(event, OAUTH_STATE_COOKIE, { path: "/" });
+export function consumeOAuthStateCookie(ctx: Ctx): OAuthStatePayload | null {
+  const raw = ctx.getCookie(OAUTH_STATE_COOKIE);
+  ctx.deleteCookie(OAUTH_STATE_COOKIE);
   if (!raw) return null;
   try {
     const p = JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as OAuthStatePayload;
