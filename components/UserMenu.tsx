@@ -33,14 +33,16 @@ export function UserMenu() {
           }
         />
         <DropdownMenu.Content align="end">
-          <DropdownMenu.Label>Signed in as @{user.login}</DropdownMenu.Label>
-          <DropdownMenu.LinkItem
-            href={`https://github.com/${user.login}`}
-            target="_blank"
-            icon={GithubLogoIcon}
-          >
-            GitHub profile
-          </DropdownMenu.LinkItem>
+          <DropdownMenu.Group>
+            <DropdownMenu.Label>Signed in as @{user.login}</DropdownMenu.Label>
+            <DropdownMenu.LinkItem
+              href={`https://github.com/${user.login}`}
+              target="_blank"
+              icon={GithubLogoIcon}
+            >
+              GitHub profile
+            </DropdownMenu.LinkItem>
+          </DropdownMenu.Group>
           <DropdownMenu.Separator />
           <DropdownMenu.Item icon={SignOutIcon} onClick={() => void logout()}>
             Sign out
