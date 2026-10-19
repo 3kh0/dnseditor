@@ -39,6 +39,7 @@ import {
   syncForkWithUpstream,
 } from "@/lib/server/github";
 import { httpError, isHttpError, route } from "@/lib/server/http";
+import { assertZoneSortOrder } from "@/lib/server/zone-sort";
 
 interface RecordInput {
   subdomain?: string;
@@ -308,18 +309,15 @@ export const POST = route(async (ctx) => {
         }
         if (!Object.prototype.hasOwnProperty.call(current, rec.subdomain)) {
           newSubdomains.add(rec.subdomain);
-          updated = insertNewSubdomain(
-            updated,
-            Object.keys(current),
-            rec.subdomain,
-            contact!,
-            rec.lines,
-          );
+          updated = insertNewSubdomain(updated, rec.subdomain, contact!, rec.lines);
         } else {
           updated = appendToExistingSubdomain(updated, rec.subdomain, rec.lines);
         }
       }
     }
+
+    // Fail before any branch, commit, or PR is created if upstream or our edit is unsorted.
+    assertZoneSortOrder(updated);
 
     const branchSubdomain = action === "delete" ? deleteTarget!.subdomain : first!.subdomain;
     const branch = `dns-editor-${branchSubdomain.replace(/[^a-z0-9-]/gi, "-").slice(0, 40)}-${Date.now()}`;
