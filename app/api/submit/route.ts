@@ -365,7 +365,7 @@ export const POST = route(async (ctx) => {
     const previewGroups = new Map<string, string[]>();
     for (const rec of recs) {
       const lines = previewGroups.get(rec.subdomain) ?? [];
-      lines.push(...rec.lines.map((line) => `  ${line}`));
+      lines.push(...rec.lines);
       previewGroups.set(rec.subdomain, lines);
     }
     const preview = [...previewGroups]

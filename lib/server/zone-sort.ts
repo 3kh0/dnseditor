@@ -55,9 +55,9 @@ export function assertZoneFormatting(content: string): void {
       if (!key.range || !value.range) return;
       const keyColumn = lineCounter.linePos(key.range[0]).col;
       const listColumn = lineCounter.linePos(value.range[0]).col;
-      if (listColumn !== keyColumn + 2) {
+      if (listColumn !== keyColumn) {
         throw new Error(
-          `DNS block list under "${String(key.value)}" must be indented two spaces. No pull request was created.`,
+          `DNS block list under "${String(key.value)}" must align with its key (compact YAML style). No pull request was created.`,
         );
       }
     },

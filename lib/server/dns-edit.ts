@@ -53,8 +53,8 @@ export function formatRecordLines(input: {
     return [
       ...head,
       `  values:`,
-      `    - exchange: ${input.value}`,
-      `      preference: ${input.mxPreference}`,
+      `  - exchange: ${input.value}`,
+      `    preference: ${input.mxPreference}`,
     ];
   }
 
@@ -84,7 +84,7 @@ export function insertNewSubdomain(
   const lines = split(content);
   const top = findTopKeys(lines);
   const nextKey = zoneKeys(content).find((key) => compareZoneKeys(key, subdomain) > 0);
-  const block = [`${formatYamlKey(subdomain)}: # ${contact}`, ...indentRecordLines(recordLines)];
+  const block = [`${formatYamlKey(subdomain)}: # ${contact}`, ...recordLines];
 
   if (nextKey === undefined) {
     const end = [...lines];
@@ -111,7 +111,7 @@ export function appendToExistingSubdomain(
   const end = top[idx + 1]?.i ?? lines.length;
   let at = end;
   while (at > entry.i + 1 && (lines[at - 1] ?? "").trim() === "") at--;
-  return join([...lines.slice(0, at), ...indentRecordLines(recordLines), ...lines.slice(at)]);
+  return join([...lines.slice(0, at), ...recordLines, ...lines.slice(at)]);
 }
 
 export interface RecordMatch {
@@ -423,11 +423,8 @@ const normalizeCompare = (v: string) =>
 function serializeSubdomainBlock(subdomain: string, contact: string, entry: unknown): string[] {
   const header = `${formatYamlKey(subdomain)}: # ${contact}`;
   const records = (Array.isArray(entry) ? entry : [entry]).filter(isObj);
-  return [header, ...indentRecordLines(records.flatMap((rec) => serializeRecordObject(rec)))];
+  return [header, ...records.flatMap((rec) => serializeRecordObject(rec))];
 }
-
-// DNS CI uses ruamel.yaml indent(mapping=2, sequence=4, offset=2).
-const indentRecordLines = (lines: string[]) => lines.map((line) => `  ${line}`);
 
 function serializeRecordObject(rec: Record<string, unknown>): string[] {
   const type = typeof rec.type === "string" ? rec.type : "UNKNOWN";
@@ -439,7 +436,7 @@ function serializeRecordObject(rec: Record<string, unknown>): string[] {
     if (type === "MX") {
       return [...head, `  values:`, ...rec.values.flatMap((v) => serializeMxValue(v))];
     }
-    return [...head, `  values:`, ...rec.values.map((v) => `    - ${formatScalar(type, v)}`)];
+    return [...head, `  values:`, ...rec.values.map((v) => `  - ${formatScalar(type, v)}`)];
   }
 
   const value = rec.value;
@@ -475,10 +472,10 @@ function recordHead(input: { type: string; ttl?: number; proxied?: boolean }): s
 }
 
 function serializeMxValue(v: unknown): string[] {
-  if (!isObj(v)) return [`    - exchange: ${String(v)}`, `      preference: 10`];
+  if (!isObj(v)) return [`  - exchange: ${String(v)}`, `    preference: 10`];
   const exchange = String(v.exchange ?? "");
   const pref = Number(v.preference ?? v.priority ?? 10);
-  return [`    - exchange: ${exchange}`, `      preference: ${pref}`];
+  return [`  - exchange: ${exchange}`, `    preference: ${pref}`];
 }
 
 function formatScalar(type: string, v: unknown): string {

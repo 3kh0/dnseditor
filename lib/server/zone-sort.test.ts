@@ -10,8 +10,7 @@ const zone = (keys: string[]) =>
 test("PR #3866: insert before numeric YAML 44.74 without reformatting existing blocks", () => {
   const before = zone(['""', '"3am"', "44.74", "67", '"555"']);
   const after = insertNewSubdomain(before, "8-pin-grant", "rudy@hackclub.com", record);
-  const block =
-    "'8-pin-grant': # rudy@hackclub.com\n" + record.map((line) => `  ${line}`).join("\n") + "\n";
+  const block = "'8-pin-grant': # rudy@hackclub.com\n" + record.join("\n") + "\n";
   assert.equal(after, before.replace("44.74:", block + "44.74:"));
   assert.deepEqual(zoneKeys(after), ["", "3am", "8-pin-grant", 44.74, 67, "555"]);
   assertZoneSortOrder(after);
