@@ -10,7 +10,8 @@
     "lint:fix": "oxlint --fix .",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
   },
   "dependencies": {
     "@cloudflare/kumo": "^2.14.0",

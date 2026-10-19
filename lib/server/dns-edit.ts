@@ -1,6 +1,7 @@
 import YAML from "yaml";
 import { escapeTxtSemicolons, hasContact, isObj } from "@/shared/dns";
 import { httpError } from "./http";
+import { compareZoneKeys, zoneKeys } from "./zone-sort";
 
 export { hasContact as hasContactInfo, isObj as isPlainObject };
 
@@ -76,23 +77,22 @@ export function formatYamlKey(key: string) {
 
 export function insertNewSubdomain(
   content: string,
-  existingKeys: string[],
   subdomain: string,
   contact: string,
   recordLines: string[],
 ) {
   const lines = split(content);
   const top = findTopKeys(lines);
-  const nextKey = [...existingKeys].sort(cmpKeys).find((k) => cmpKeys(k, subdomain) > 0);
+  const nextKey = zoneKeys(content).find((key) => compareZoneKeys(key, subdomain) > 0);
   const block = [`${formatYamlKey(subdomain)}: # ${contact}`, ...recordLines];
 
-  if (!nextKey) {
+  if (nextKey === undefined) {
     const end = [...lines];
     while (end.length && last(end).trim() === "") end.pop();
     return join([...end, ...block]);
   }
 
-  const next = top.find((e) => e.key === nextKey);
+  const next = top.find((e) => e.key === String(nextKey));
   if (!next) throw new Error(`Could not locate insertion point before key "${nextKey}"`);
   return join([...lines.slice(0, next.i), ...block, ...lines.slice(next.i)]);
 }
@@ -523,7 +523,3 @@ const unquote = (raw: string) =>
   (raw.startsWith("'") && raw.endsWith("'")) || (raw.startsWith('"') && raw.endsWith('"'))
     ? raw.slice(1, -1)
     : raw;
-
-const sortKey = (k: string) => (k ? k.split(".").reverse().join(".") : "");
-const cmpKeys = (a: string, b: string) =>
-  sortKey(a).localeCompare(sortKey(b), undefined, { numeric: true, sensitivity: "base" });
