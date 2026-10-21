@@ -14,6 +14,52 @@ input {
   -webkit-tap-highlight-color: transparent;
 }
 
+.flipping-status {
+  --status-depth: 1.5em;
+  width: min(24rem, calc(100vw - 5rem));
+  height: 3em;
+  perspective: 700px;
+}
+
+.flipping-status-column {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  transform: translateZ(calc(-1 * var(--status-depth)));
+}
+
+.flipping-status-face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-inline: 0.5rem;
+  backface-visibility: hidden;
+}
+
+.flipping-status-front {
+  transform: translateZ(var(--status-depth));
+}
+
+.flipping-status-top {
+  transform: rotateX(90deg) translateZ(var(--status-depth));
+}
+
+.flipping-status-turning {
+  animation: status-column-turn 560ms cubic-bezier(0.65, 0, 0.25, 1) both;
+}
+
+@keyframes status-column-turn {
+  from {
+    transform: translateZ(calc(-1 * var(--status-depth))) rotateX(0);
+  }
+  to {
+    transform: translateZ(calc(-1 * var(--status-depth))) rotateX(-90deg);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

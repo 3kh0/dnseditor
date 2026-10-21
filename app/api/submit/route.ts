@@ -1,3 +1,4 @@
+import { NextResponse } from "next/server";
 import { Octokit } from "@octokit/rest";
 import YAML from "yaml";
 import {
@@ -161,7 +162,13 @@ function validateDeleteTarget(input: RecordInput | undefined): DeleteTarget {
 
 export const POST = route(async (ctx) => {
   const body = ((await ctx.req.json().catch(() => null)) ?? {}) as SubmitBody;
-  const session = await requireUserSession(ctx);
+  let session = await requireUserSession(ctx);
+  const streaming = ctx.req.headers.get("accept") === "application/x-ndjson";
+  // Refresh before starting the stream so the rotated session cookie reaches the browser.
+  if (streaming && ctx.query("refresh") === "1") {
+    session = (await forceRefreshSession(ctx, session)) ?? session;
+  }
+  let reportProgress = (_message: string) => {};
   const upstream = getUpstreamRepo();
 
   const action = body.action === "edit" ? "edit" : body.action === "delete" ? "delete" : "add";
@@ -226,10 +233,12 @@ export const POST = route(async (ctx) => {
   }
 
   const attempt = async (octokit: Octokit) => {
+    reportProgress("Checking your fork…");
     const fork = await requireUserFork(octokit, session.login, upstream.owner, upstream.repo);
     console.log(
       `[submit] ${session.login} ${action} ${domain} → fork ${fork.fullName} → PR ${upstream.owner}/${upstream.repo}`,
     );
+    reportProgress("Reading the latest DNS file…");
     const { content, sha } = await readRepoFile(
       octokit,
       upstream.owner,
@@ -240,6 +249,7 @@ export const POST = route(async (ctx) => {
     const parsed = YAML.parse(content);
     if (!isObj(parsed)) throw new Error(`${domain} does not contain a YAML mapping`);
 
+    reportProgress("Making changes…");
     let updated: string;
     const newSubdomains = new Set<string>();
 
@@ -316,6 +326,7 @@ export const POST = route(async (ctx) => {
       }
     }
 
+    reportProgress("Checking file formatting…");
     // Fail before any branch, commit, or PR if upstream or our edit has incompatible layout.
     assertZoneSortOrder(updated);
     assertZoneFormatting(updated);
@@ -333,12 +344,14 @@ export const POST = route(async (ctx) => {
         : `${fqdns.slice(0, 3).join(", ")} +${fqdns.length - 3} more`;
     const verb = action === "edit" ? "Update" : action === "delete" ? "Delete" : "Add";
 
+    reportProgress("Syncing your fork…");
     await syncForkWithUpstream(octokit, fork, fork.defaultBranch || upstream.branch);
     const { data: ref } = await octokit.git.getRef({
       owner: upstream.owner,
       repo: upstream.repo,
       ref: `heads/${upstream.branch}`,
     });
+    reportProgress("Creating a branch…");
     await createBranchOnFork(octokit, fork, branch, ref.object.sha, upstream.branch);
 
     const bot = await getAppBotIdentity(octokit);
@@ -352,6 +365,7 @@ export const POST = route(async (ctx) => {
         : "Submitted with Hack Club DNS Editor.",
     );
 
+    reportProgress("Saving changes to your fork…");
     await octokit.repos.createOrUpdateFileContents({
       owner: fork.owner,
       repo: fork.repo,
@@ -452,6 +466,7 @@ Please review carefully before merging.
       repo: upstream.repo,
     };
 
+    reportProgress("Opening pull request…");
     try {
       const { data: pr } = await octokit.pulls.create({
         owner: upstream.owner,
@@ -463,6 +478,7 @@ Please review carefully before merging.
         body: prBody,
       });
 
+      reportProgress("Finishing up…");
       let viaApp: string | null = null;
       try {
         const { data: issue } = await octokit.issues.get({
@@ -528,24 +544,71 @@ Please review carefully before merging.
     });
   };
 
-  try {
-    return await attempt(createUserOctokit(session.accessToken));
-  } catch (error) {
-    if (isIntegrationAccessError(error) && session.refreshToken) {
-      const refreshed = await forceRefreshSession(ctx, session);
-      if (refreshed) {
-        console.warn(
-          `[submit] integration 403 for ${session.login}; refreshed user token and retrying push`,
-        );
-        try {
-          return await attempt(createUserOctokit(refreshed.accessToken));
-        } catch (retryError) {
-          return failed(retryError);
+  const execute = async () => {
+    try {
+      return await attempt(createUserOctokit(session.accessToken));
+    } catch (error) {
+      if (isIntegrationAccessError(error) && session.refreshToken) {
+        if (streaming && ctx.query("refresh") !== "1") {
+          throw httpError({
+            statusCode: 409,
+            message: "Refreshing GitHub access…",
+            data: { code: "SUBMIT_REFRESH_REQUIRED" },
+          });
+        }
+        if (streaming) return failed(error);
+        const refreshed = await forceRefreshSession(ctx, session);
+        if (refreshed) {
+          console.warn(
+            `[submit] integration 403 for ${session.login}; refreshed user token and retrying push`,
+          );
+          try {
+            return await attempt(createUserOctokit(refreshed.accessToken));
+          } catch (retryError) {
+            return failed(retryError);
+          }
         }
       }
+      return failed(error);
     }
-    return failed(error);
-  }
+  };
+
+  if (!streaming) return execute();
+
+  const encoder = new TextEncoder();
+  let connected = true;
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (event: unknown) => {
+        if (connected) controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+      };
+      reportProgress = (message) => send({ type: "progress", message });
+      try {
+        const data = await execute();
+        send({ type: "result", data });
+      } catch (error) {
+        const statusCode = isHttpError(error) ? error.statusCode : 500;
+        send({
+          type: "error",
+          statusCode,
+          message: error instanceof Error ? error.message : "Failed to submit record",
+          data: isHttpError(error) ? error.data : undefined,
+        });
+      } finally {
+        if (connected) controller.close();
+      }
+    },
+    cancel() {
+      connected = false;
+    },
+  });
+  return new NextResponse(stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson",
+      "Cache-Control": "no-cache, no-transform",
+      "X-Accel-Buffering": "no",
+    },
+  });
 });
 
 async function readRepoFile(

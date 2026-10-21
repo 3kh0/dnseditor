@@ -25,6 +25,7 @@ import {
 } from "@phosphor-icons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errCode, errInstallUrl } from "@/lib/client/api";
+import { submitWithProgress } from "@/lib/client/submit";
 import { useAuth, type AuthState } from "@/lib/client/auth";
 import {
   addRecordCollision,
@@ -42,6 +43,7 @@ import {
   type CollisionRecord,
 } from "@/shared/dns";
 import type { DnsMxValue, DnsRecordGroup, DnsValue } from "@/shared/types/dns";
+import { FlippingStatus } from "./FlippingStatus";
 import { ProviderIcon } from "./ProviderIcon";
 import { SuccessDialog } from "./SuccessDialog";
 
@@ -783,9 +785,9 @@ export function EditRecordDialog({
     try {
       clearErrors();
       setSending(true);
-      setStatusMessage(`Opening PR via ${fork.fullName}…`);
+      setStatusMessage("Preparing your submission…");
 
-      const response = await api<SubmitResponse>("/api/submit", { method: "POST", body });
+      const response = await submitWithProgress<SubmitResponse>(body, setStatusMessage);
 
       saveContact(form.contact.trim());
       close();
@@ -851,7 +853,7 @@ export function EditRecordDialog({
             <div className="absolute inset-0 z-20 flex items-center justify-center bg-kumo-base/80 backdrop-blur-sm">
               <div className="flex flex-col items-center gap-3 px-4 text-center">
                 <Loader size="lg" />
-                <span className="text-sm">{statusMessage || "Working…"}</span>
+                <FlippingStatus message={statusMessage || "Working…"} />
               </div>
             </div>
           )}
