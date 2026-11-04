@@ -310,6 +310,11 @@ export function DnsRecordTable({
                     <span className="block text-sm font-medium break-all">
                       {displayName(vr.row.subdomain)}
                     </span>
+                    {vr.row.contact && (
+                      <span className="block text-xs text-kumo-subtle wrap-break-word">
+                        {vr.row.contact}
+                      </span>
+                    )}
                     <span className="text-xs text-kumo-subtle">
                       {vr.count} records — tap to {vr.open ? "collapse" : "expand"}
                     </span>
@@ -358,6 +363,9 @@ export function DnsRecordTable({
                   <h3 className="mt-1.5 text-sm leading-5 font-medium break-all">
                     <HighlightedText text={name} query={searchQuery} />
                   </h3>
+                  {row.contact && (
+                    <p className="mt-0.5 text-xs text-kumo-subtle wrap-break-word">{row.contact}</p>
+                  )}
 
                   <div className="mt-0.5 flex min-w-0 items-center gap-1.5 pb-2 text-[13px] text-kumo-strong">
                     {row.provider ? (
@@ -416,6 +424,14 @@ export function DnsRecordTable({
                   >
                     <Table.Cell className="max-w-64 truncate" title={displayName(vr.row.subdomain)}>
                       {displayName(vr.row.subdomain)}
+                      {vr.row.contact && (
+                        <span
+                          className="block truncate text-xs font-normal text-kumo-subtle"
+                          title={vr.row.contact}
+                        >
+                          {vr.row.contact}
+                        </span>
+                      )}
                     </Table.Cell>
                     <Table.Cell className="font-medium">{vr.row.type}</Table.Cell>
                     <Table.Cell colSpan={3}>
@@ -441,6 +457,14 @@ export function DnsRecordTable({
                 <Table.Row key={i} className={cn(vr.open && "bg-kumo-elevated")}>
                   <Table.Cell className={cn("max-w-64 truncate", vr.open && "pl-8")} title={name}>
                     <HighlightedText text={name} query={searchQuery} />
+                    {row.contact && (
+                      <span
+                        className="block truncate text-xs font-normal text-kumo-subtle"
+                        title={row.contact}
+                      >
+                        {row.contact}
+                      </span>
+                    )}
                   </Table.Cell>
                   <Table.Cell className="font-medium">
                     <HighlightedText text={row.type} query={searchQuery} />
