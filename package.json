@@ -14,7 +14,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@cloudflare/kumo": "^2.18.0",
+    "@cloudflare/kumo": "^2.18.1",
     "@octokit/rest": "^22.0.1",
     "@phosphor-icons/react": "^2.1.10",
     "@vercel/analytics": "^2.0.1",
