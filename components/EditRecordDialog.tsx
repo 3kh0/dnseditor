@@ -233,6 +233,7 @@ export function EditRecordDialog({
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [original, setOriginal] = useState<EditingRecord | null>(null);
   const [queued, setQueued] = useState<QueuedRecord[]>([]);
+  const [extraTxtValues, setExtraTxtValues] = useState<string[]>([]);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [valueFocused, setValueFocused] = useState(false);
   const [valueTouched, setValueTouched] = useState(false);
@@ -363,7 +364,13 @@ export function EditRecordDialog({
   const isValid = (() => {
     if (isDelete) return true;
     if (!contactValid) return false;
-    if (isEdit) return currentRecordValid && hasChanges;
+    if (isEdit)
+      return (
+        currentRecordValid &&
+        (hasChanges || extraTxtValues.length > 0) &&
+        (form.type === "TXT" || extraTxtValues.length === 0) &&
+        extraTxtValues.every((v) => v.trim() !== "" && !recordValueError("TXT", v.trim()))
+      );
     if (queued.length > 0) {
       // A half-typed record blocks submit instead of being silently dropped.
       return !currentCountsAsRecord || currentRecordValid;
@@ -451,6 +458,7 @@ export function EditRecordDialog({
     setAppAccess(null);
     setStatusMessage(null);
     setDeleteFromEdit(false);
+    setExtraTxtValues([]);
 
     if (editing) {
       setOriginal({ ...editing });
@@ -534,6 +542,7 @@ export function EditRecordDialog({
   }
 
   function setType(type: string) {
+    if (type !== "TXT") setExtraTxtValues([]);
     // Drop proxy when the type is not proxyable (MX/TXT/ALIAS).
     setForm((f) => ({ ...f, type, proxied: supportsCfProxy(domain, type) ? f.proxied : false }));
   }
@@ -761,6 +770,16 @@ export function EditRecordDialog({
           ...(form.type === "MX" ? { mxPreference: Number(form.mxPreference) } : {}),
           ...(form.proxied && canProxy ? { proxied: true } : {}),
         },
+        ...(extraTxtValues.length && form.type === "TXT"
+          ? {
+              records: extraTxtValues.map((value) => ({
+                subdomain: form.subdomain.trim().toLowerCase(),
+                type: "TXT",
+                value: value.trim(),
+                ...(form.ttl !== "" ? { ttl: Number(form.ttl) } : {}),
+              })),
+            }
+          : {}),
         original: {
           type: original.type,
           value: original.value,
@@ -1110,6 +1129,38 @@ export function EditRecordDialog({
                     />
                   )}
 
+                  {isEdit &&
+                    form.type === "TXT" &&
+                    extraTxtValues.map((value, i) => (
+                      <div key={i} className="flex items-end gap-2">
+                        <div className="flex-1">
+                          <Input
+                            label={`Additional value ${i + 1}`}
+                            value={value}
+                            onChange={(e) =>
+                              setExtraTxtValues((values) =>
+                                values.map((v, j) => (j === i ? e.target.value : v)),
+                              )
+                            }
+                            error={
+                              value.trim()
+                                ? (recordValueError("TXT", value.trim()) ?? undefined)
+                                : undefined
+                            }
+                          />
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="xs"
+                          shape="square"
+                          icon={XIcon}
+                          aria-label={`Remove additional value ${i + 1}`}
+                          onClick={() =>
+                            setExtraTxtValues((values) => values.filter((_, j) => j !== i))
+                          }
+                        />
+                      </div>
+                    ))}
                   {isEdit && original && (
                     <p className="text-xs text-kumo-subtle">
                       This pull request will replace the existing{" "}
@@ -1232,7 +1283,7 @@ export function EditRecordDialog({
             </div>
 
             <div className="border-t border-kumo-hairline px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-              {isEdit && !hasChanges && (
+              {isEdit && !hasChanges && extraTxtValues.length === 0 && (
                 <p className="mb-2 text-xs text-kumo-subtle">
                   Change at least one field to open a pull request.
                 </p>
@@ -1248,6 +1299,15 @@ export function EditRecordDialog({
                     disabled={!currentRecordValid || busy}
                     title="Queue this record and add another one to the same pull request"
                     onClick={queueCurrentRecord}
+                  >
+                    Add another
+                  </Button>
+                )}
+                {isEdit && form.type === "TXT" && (
+                  <Button
+                    variant="secondary"
+                    disabled={busy}
+                    onClick={() => setExtraTxtValues((values) => [...values, ""])}
                   >
                     Add another
                   </Button>

@@ -185,7 +185,7 @@ export const POST = route(async (ctx) => {
     });
   }
 
-  if (action !== "add" && body.records) {
+  if (action === "delete" && body.records) {
     throw httpError({ statusCode: 400, message: "Batch records are only supported when adding" });
   }
 
@@ -194,9 +194,11 @@ export const POST = route(async (ctx) => {
   const inputs =
     action === "add" && Array.isArray(body.records)
       ? body.records
-      : action !== "delete" && body.record
-        ? [body.record]
-        : [];
+      : action === "edit" && body.record && Array.isArray(body.records)
+        ? [body.record, ...body.records]
+        : action !== "delete" && body.record
+          ? [body.record]
+          : [];
   if (action !== "delete" && inputs.length === 0) {
     throw httpError({ statusCode: 400, message: "Missing required fields" });
   }
@@ -211,6 +213,16 @@ export const POST = route(async (ctx) => {
     validateRecordInput(domain, input, inputs.length > 1 ? `Record ${i + 1}` : ""),
   );
   const first = recs[0];
+  if (
+    action === "edit" &&
+    recs.length > 1 &&
+    (first?.type !== "TXT" || recs.some((r) => r.type !== "TXT" || r.subdomain !== first.subdomain))
+  ) {
+    throw httpError({
+      statusCode: 400,
+      message: "Additional edit values must be TXT records at the same name",
+    });
+  }
 
   const origType = body.original?.type?.trim().toUpperCase();
   const origValue = body.original?.value;
@@ -299,6 +311,20 @@ export const POST = route(async (ctx) => {
           proxied: first!.proxied,
         },
       );
+      for (const rec of recs.slice(1)) {
+        const current = YAML.parse(updated);
+        const existing = flattenYamlRecords(current[rec.subdomain]);
+        const collision = addRecordCollision(existing, rec.type, rec.value);
+        if (collisionBlocksAdd(collision))
+          throw httpError({
+            statusCode: 400,
+            message: formatCollisionMessage(collision, {
+              fqdn: `${rec.subdomain}.${bareDomain(domain)}`,
+              newType: rec.type,
+            }),
+          });
+        updated = appendToExistingSubdomain(updated, rec.subdomain, rec.lines);
+      }
     } else {
       updated = content;
       for (const rec of recs) {
