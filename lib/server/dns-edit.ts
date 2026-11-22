@@ -114,6 +114,56 @@ export function appendToExistingSubdomain(
   return join([...lines.slice(0, at), ...recordLines, ...lines.slice(at)]);
 }
 
+/** Add a TXT value to the existing TXT record set while retaining its metadata. */
+export function appendTxtValue(
+  content: string,
+  subdomain: string,
+  value: string,
+  ttl?: number,
+): string {
+  const lines = split(content);
+  const top = findTopKeys(lines);
+  const idx = top.findIndex((entry) => entry.key === subdomain);
+  if (idx < 0) throw new Error(`Subdomain "${subdomain}" not found`);
+  const start = top[idx]!.i;
+  let end = top[idx + 1]?.i ?? lines.length;
+  while (end > start + 1 && !lines[end - 1]!.trim()) end--;
+  const doc = YAML.parseDocument(lines.slice(start, end).join("\n"));
+  if (doc.errors.length) throw doc.errors[0];
+  const entry = doc.get(subdomain, true);
+  const records = YAML.isSeq(entry) ? entry.items : [entry];
+  const txt = records.filter(
+    (record) => YAML.isMap(record) && String(record.get("type")).toUpperCase() === "TXT",
+  );
+  if (txt.length !== 1 || !YAML.isMap(txt[0])) {
+    throw httpError({
+      statusCode: 400,
+      message: "Cannot add a TXT value: expected exactly one existing TXT record set.",
+    });
+  }
+  const record = txt[0];
+  const existingTtl = record.get("ttl");
+  if (ttl !== undefined && Number(existingTtl) !== ttl) {
+    throw httpError({
+      statusCode: 400,
+      message:
+        "TXT values at the same name must use the same TTL. Leave TTL blank to use the existing record's TTL.",
+    });
+  }
+  let values: unknown = record.get("values", true);
+  if (!YAML.isSeq(values)) {
+    const previous = record.get("value", true);
+    if (previous === undefined) throw new Error("Existing TXT record has no value");
+    values = doc.createNode([previous]);
+    record.delete("value");
+    record.set("values", values);
+  }
+  if (!YAML.isSeq(values)) throw new Error("Invalid TXT values");
+  values.add(value);
+  const block = doc.toString({ indentSeq: false }).trimEnd().split("\n");
+  return join([...lines.slice(0, start), ...block, ...lines.slice(end)]);
+}
+
 export interface RecordMatch {
   type: string;
   value: string;

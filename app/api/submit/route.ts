@@ -17,6 +17,7 @@ import {
 } from "@/shared/dns";
 import {
   appendToExistingSubdomain,
+  appendTxtValue,
   formatRecordLines,
   formatYamlKey,
   insertNewSubdomain,
@@ -323,7 +324,7 @@ export const POST = route(async (ctx) => {
               newType: rec.type,
             }),
           });
-        updated = appendToExistingSubdomain(updated, rec.subdomain, rec.lines);
+        updated = appendTxtValue(updated, rec.subdomain, rec.value, rec.ttl);
       }
     } else {
       updated = content;
@@ -347,7 +348,10 @@ export const POST = route(async (ctx) => {
           newSubdomains.add(rec.subdomain);
           updated = insertNewSubdomain(updated, rec.subdomain, contact!, rec.lines);
         } else {
-          updated = appendToExistingSubdomain(updated, rec.subdomain, rec.lines);
+          updated =
+            rec.type === "TXT" && existing.some((r) => r.type.toUpperCase() === "TXT")
+              ? appendTxtValue(updated, rec.subdomain, rec.value, rec.ttl)
+              : appendToExistingSubdomain(updated, rec.subdomain, rec.lines);
         }
       }
     }
